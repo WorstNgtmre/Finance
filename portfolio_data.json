@@ -1,6 +1,12 @@
 {
-    "cash": 100000.0,
-    "stocks": {},
+    "cash": 99796.0,
+    "stocks": {
+        "AAPL": {
+            "qty": 1,
+            "avg_price": 204.0,
+            "buy_date": "2025-08-05 19:28:22"
+        }
+    },
     "initial_cash": 100000.0,
     "closed_trades": []
 }

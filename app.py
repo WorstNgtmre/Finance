@@ -379,7 +379,7 @@ app.layout = dbc.Container([
         ]
     ),
 
-    dcc.Interval(id='auto-update', interval=60000, n_intervals=0),
+    dcc.Interval(id='auto-update', interval=5000, n_intervals=0), # Cambiado a 5000 ms (5 segundos)
 
 ], fluid=True, className="bg-light")
 
