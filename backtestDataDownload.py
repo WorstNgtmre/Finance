@@ -38,7 +38,7 @@ def download_stock_data(ticker, year, month, interval="15m"):
         df = df[df['Volume'] > 0]
 
         # Crear un nombre de archivo descriptivo
-        file_name = f"//BacktestData//{ticker}_{year}_{month:02d}_{interval}.csv"
+        file_name = r"BacktestData/" + f"{ticker}_{year}_{month:02d}_{interval}.csv"
         df.to_csv(file_name)
         print(f"Datos descargados y guardados en {file_name}")
 
@@ -47,7 +47,7 @@ def download_stock_data(ticker, year, month, interval="15m"):
 
 if __name__ == "__main__":
     # --- Configura aquí el ticker, año y mes que quieres descargar ---
-    TICKER_TO_DOWNLOAD = "PM" # Ejemplo: Microsoft
+    TICKER_TO_DOWNLOAD = "PLD" # Ejemplo: Microsoft
     YEAR_TO_DOWNLOAD = 2025
     MONTH_TO_DOWNLOAD = 7 # Junio
     INTERVAL_TO_DOWNLOAD = "15m" # Intervalo de 15 minutos

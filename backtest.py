@@ -27,13 +27,16 @@ def calculate_indicators(df):
     df['Volume_SMA'] = df['Volume'].rolling(window=10).mean()
     return df
 
-def get_recommendation(df_slice):
+def get_recommendation(df_with_indicators): # Renamed df_slice to df_with_indicators
     """
     Genera una recomendación de trading (Comprar, Vender, Observar, Mantener)
     basada en los indicadores del slice de datos proporcionado.
     """
-    if df_slice.empty or len(df_slice) < max(14, 20, 10, 26): # Asegura que haya suficientes datos para los indicadores
-        # El 26 es la ventana por defecto para MACD, aunque ta lo maneje internamente, es bueno para la precaución.
+    # This check ensures that the DataFrame has enough rows AFTER dropna
+    # for all indicators to have been calculated and for safe access of last_row and prev_row.
+    # The largest window is 26 for MACD. So, at least 26 rows are needed.
+    # If df.dropna() leaves fewer than 26 rows, then it's truly "No hay datos suficientes".
+    if df_with_indicators.empty or len(df_with_indicators) < 26: 
         return "No hay datos suficientes"
 
     # --- Coeficientes para el peso de cada indicador (ajustables para day trading) ---
@@ -49,7 +52,9 @@ def get_recommendation(df_slice):
     sell_score = 0.0
 
     # Usar el último punto de datos para la decisión
-    last_row = df_slice.iloc[-1]
+    last_row = df_with_indicators.iloc[-1]
+    # Acceder a la fila anterior de forma segura
+    prev_row = df_with_indicators.iloc[-2] if len(df_with_indicators) >= 2 else None
     
     # Reglas de Bandas de Bollinger
     if last_row['Close'] < last_row['Lower']:
@@ -64,8 +69,7 @@ def get_recommendation(df_slice):
         sell_score += COEF_RSI
 
     # Reglas de MACD (cruce de líneas)
-    if len(df_slice) >= 2: # Asegura que haya al menos dos puntos para el cruce
-        prev_row = df_slice.iloc[-2]
+    if prev_row is not None: # Check if prev_row exists
         if last_row['MACD'] > last_row['Signal'] and prev_row['MACD'] <= prev_row['Signal']:
             buy_score += COEF_MACD
         elif last_row['MACD'] < last_row['Signal'] and prev_row['MACD'] >= prev_row['Signal']:
@@ -85,7 +89,7 @@ def get_recommendation(df_slice):
             sell_score += COEF_ADX_SMA
 
     # Nueva Regla de Volumen
-    if len(df_slice) >= 2 and not last_row['Volume_SMA'] == 0:
+    if prev_row is not None and not last_row['Volume_SMA'] == 0:
         if last_row['Volume'] > (1.5 * last_row['Volume_SMA']):
             if last_row['Close'] > prev_row['Close']:
                 buy_score += COEF_VOLUME
@@ -110,21 +114,55 @@ def run_single_simulation(file_path, ticker_symbol, initial_cash, auto_trade_qua
     """
     print(f"\n--- Iniciando Simulación para {ticker_symbol} ({os.path.basename(file_path)}) ---")
 
-    # --- CAMBIO REALIZADO: Eliminada la línea redundante df.index = pd.to_datetime(df.index) ---
-    # Asumiendo que el CSV tiene 'Ticker' como la primera columna y 'Datetime' como la segunda.
-    # Si tu CSV tiene 'Datetime' como la primera columna, cambia index_col de nuevo a 0.
-    df = pd.read_csv(file_path, index_col=1, parse_dates=True) 
-    
-    if df.empty:
-        print(f"El archivo '{file_path}' está vacío o no contiene datos válidos. Saltando.")
-        return 0, 0 # Retorna 0 si no hay datos
+    try:
+        # Leer el CSV: header=0 para usar la primera fila como encabezado, skiprows=[1, 2] para omitir las filas de Ticker y Datetime
+        df = pd.read_csv(file_path, header=0, skiprows=[1, 2])
+        
+        # Renombrar la columna 'Price' a 'Datetime' (ya que contiene las fechas)
+        if 'Price' in df.columns:
+            df.rename(columns={'Price': 'Datetime'}, inplace=True)
+        else:
+            print(f"Error: Columna 'Price' (donde deberían estar las fechas) no encontrada en {file_path}. Saltando.")
+            return 0, 0
 
-    # df.index = pd.to_datetime(df.index) # Esta línea ha sido eliminada
-    df = calculate_indicators(df)
-    df.dropna(inplace=True) 
-    
+        # Establecer 'Datetime' como el índice y parsear las fechas
+        # Usar el formato explícito para evitar UserWarning y asegurar la correcta interpretación
+        df.set_index('Datetime', inplace=True)
+        df.index = pd.to_datetime(df.index, errors='coerce', format='%Y-%m-%d %H:%M:%S%z') 
+        
+    except Exception as e:
+        print(f"Error al leer o procesar el archivo CSV '{file_path}': {e}. Saltando.")
+        return 0, 0
+
     if df.empty:
-        print(f"No hay suficientes datos válidos para {ticker_symbol} después de calcular los indicadores. Saltando.")
+        print(f"El archivo '{file_path}' está vacío o no contiene datos válidos después de la lectura inicial. Saltando.")
+        return 0, 0
+
+    # Normalizar nombres de columnas: reemplazar espacios y capitalizar la primera letra
+    df.columns = [col.replace(' ', '_') for col in df.columns]
+    # Asegurarse de que las columnas se capitalicen correctamente
+    df.columns = [col.title() for col in df.columns]
+
+    # Convertir explícitamente las columnas numéricas a float, forzando errores a NaN
+    # 'Adj Close' ha sido eliminada de aquí ya que no está presente en los archivos del usuario.
+    numeric_cols = ['Open', 'High', 'Low', 'Close', 'Volume'] 
+    for col in numeric_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+        else:
+            print(f"Advertencia: Columna '{col}' no encontrada en {file_path}.")
+            # Si una columna crítica como 'Close' falta, se salta el archivo
+            if col == 'Close':
+                print(f"Error: La columna 'Close' es esencial y no se encontró en {file_path}. Saltando.")
+                return 0, 0
+
+    df = calculate_indicators(df)
+    
+    # Eliminar filas con cualquier valor NaN (incluyendo NaT en el índice y NaNs de indicadores)
+    df.dropna(inplace=True) 
+
+    if df.empty:
+        print(f"No hay suficientes datos válidos para {ticker_symbol} después de limpiar y calcular los indicadores. Saltando.")
         return 0, 0
 
     portfolio = {
@@ -134,19 +172,31 @@ def run_single_simulation(file_path, ticker_symbol, initial_cash, auto_trade_qua
     }
     last_auto_trade_rec_for_ticker = None 
 
-    # Determinar el tamaño de la ventana de datos para los indicadores
-    window_size = 30 
+    # --- CAMBIO CLAVE AQUÍ: Ajustar el rango del bucle para asegurar suficientes datos para la recomendación ---
+    # El bucle debe empezar desde un índice que asegure que get_recommendation reciba al menos 26 filas.
+    # Si df.dropna() ya eliminó las filas iniciales con NaN, el primer índice de df ya es válido.
+    # Sin embargo, get_recommendation necesita al menos 26 filas *para su lógica interna de iloc[-1] y iloc[-2]*
+    # y para que los indicadores (aunque precalculados) tengan sentido en el contexto del slice.
+    # Por lo tanto, el bucle debe empezar desde el índice 25 (para tener 26 filas de 0 a 25)
+    # o desde el primer índice válido si df es más corto.
+    start_index = 25 # Minimum rows needed for get_recommendation to not return "No hay datos suficientes"
+    if len(df) <= start_index:
+        print(f"Advertencia: El DataFrame para {ticker_symbol} es demasiado corto ({len(df)} filas) para ejecutar la simulación con la lógica de recomendación. Se necesitan al menos {start_index + 1} filas después de la limpieza. Saltando.")
+        return 0, 0 # Retorna 0 si no hay suficientes datos para la simulación
 
-    for i in range(len(df)):
-        if i < window_size - 1:
-            continue
-
+    for i in range(start_index, len(df)):
         current_time = df.index[i]
         current_price = df['Close'].iloc[i]
         
-        df_slice = df.iloc[max(0, i - window_size + 1):i+1]
-        
-        recommendation = get_recommendation(df_slice)
+        # --- CAMBIO CLAVE AQUÍ: Pasar el slice de datos hasta el punto actual de la simulación ---
+        # Esto asegura que get_recommendation toma decisiones basadas solo en el historial disponible hasta 'i'.
+        recommendation = get_recommendation(df.iloc[:i+1]) 
+
+        # Si la recomendación es "No hay datos suficientes", significa que el slice actual
+        # es demasiado corto para los cálculos de indicadores, a pesar de que el DF completo
+        # ya fue procesado. Esto se maneja con el start_index.
+        if recommendation == "No hay datos suficientes":
+            continue
 
         if recommendation == "📈 Comprar":
             if last_auto_trade_rec_for_ticker != "📈 Comprar":
@@ -163,10 +213,10 @@ def run_single_simulation(file_path, ticker_symbol, initial_cash, auto_trade_qua
                         portfolio["stocks"][ticker_symbol]["avg_price"] = new_total_cost / new_total_qty
                     
                     portfolio["cash"] -= costo_total
-                    # print(f"{current_time.strftime('%Y-%m-%d %H:%M:%S')} - COMPRA: {auto_trade_quantity} acciones de {ticker_symbol} a ${current_price:.2f}. Efectivo: ${portfolio['cash']:.2f}")
+                    print(f"{current_time.strftime('%Y-%m-%d %H:%M:%S')} - COMPRA: {auto_trade_quantity} acciones de {ticker_symbol} a ${current_price:.2f}. Efectivo: ${portfolio['cash']:.2f}")
                     last_auto_trade_rec_for_ticker = "📈 Comprar"
-                # else:
-                #     print(f"{current_time.strftime('%Y-%m-%d %H:%M:%S')} - COMPRA (FALLIDA): Fondos insuficientes.")
+                else:
+                    print(f"{current_time.strftime('%Y-%m-%d %H:%M:%S')} - COMPRA (FALLIDA): Fondos insuficientes.")
         
         elif recommendation == "📉 Vender":
             if last_auto_trade_rec_for_ticker != "📉 Vender":
@@ -189,12 +239,13 @@ def run_single_simulation(file_path, ticker_symbol, initial_cash, auto_trade_qua
                     if portfolio["stocks"][ticker_symbol]["qty"] == 0:
                         del portfolio["stocks"][ticker_symbol]
                     
-                    # print(f"{current_time.strftime('%Y-%m-%d %H:%M:%S')} - VENTA: {auto_trade_quantity} acciones de {ticker_symbol} a ${current_price:.2f}. P/L Realizado: ${realized_pnl:.2f}. Efectivo: ${portfolio['cash']:.2f}")
+                    print(f"{current_time.strftime('%Y-%m-%d %H:%M:%S')} - VENTA: {auto_trade_quantity} acciones de {ticker_symbol} a ${current_price:.2f}. P/L Realizado: ${realized_pnl:.2f}. Efectivo: ${portfolio['cash']:.2f}")
                     last_auto_trade_rec_for_ticker = "📉 Vender"
-                # else:
-                #     print(f"{current_time.strftime('%Y-%m-%d %H:%M:%S')} - VENTA (FALLIDA): No hay suficientes acciones para vender.")
+                else:
+                    print(f"{current_time.strftime('%Y-%m-%d %H:%M:%S')} - VENTA (FALLIDA): No hay suficientes acciones para vender.")
         else:
             last_auto_trade_rec_for_ticker = recommendation 
+            # print(f"{current_time.strftime('%Y-%m-%d %H:%M:%S')} - {recommendation} para {ticker_symbol}") # Descomentar para ver cada paso
 
     # --- Resumen de la Simulación Individual ---
     print(f"\n--- Resumen para {ticker_symbol} ---")
@@ -206,11 +257,15 @@ def run_single_simulation(file_path, ticker_symbol, initial_cash, auto_trade_qua
     print("Posiciones Abiertas al Final:")
     if portfolio["stocks"]:
         for ticker_held, stock_info in portfolio["stocks"].items():
-            current_price_held = df['Close'].iloc[-1] # Usar el último precio disponible en el DF
-            unrealized_pnl = (current_price_held - stock_info["avg_price"]) * stock_info["qty"]
-            total_current_stock_value += current_price_held * stock_info["qty"]
-            total_unrealized_pnl += unrealized_pnl
-            print(f"  {ticker_held}: {stock_info['qty']} acciones @ ${stock_info['avg_price']:.2f} (Compra). Valor actual: ${current_price_held * stock_info['qty']:.2f}. P/L No Realizado: ${unrealized_pnl:.2f}")
+            # Ensure df is not empty before accessing iloc[-1]
+            if not df.empty:
+                current_price_held = df['Close'].iloc[-1] 
+                unrealized_pnl = (current_price_held - stock_info["avg_price"]) * stock_info["qty"]
+                total_current_stock_value += current_price_held * stock_info["qty"]
+                total_unrealized_pnl += unrealized_pnl
+                print(f"  {ticker_held}: {stock_info['qty']} acciones @ ${stock_info['avg_price']:.2f} (Compra). Valor actual: ${current_price_held * stock_info['qty']:.2f}. P/L No Realizado: ${unrealized_pnl:.2f}")
+            else:
+                print(f"  No se pudo calcular el valor de las acciones para {ticker_held} debido a la falta de datos.")
     else:
         print("  Ninguna posición abierta.")
 
