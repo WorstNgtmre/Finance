@@ -70,8 +70,7 @@ latest_data = {"ticker": None, "graphs": {}, "df": pd.DataFrame(), "rec": "", "a
 
 # Descripciones para los gráficos
 GRAPH_DESCRIPTIONS = {
-    "Candlestick": "El gráfico de velas (candlestick) muestra el precio de apertura, cierre, máximo y mínimo del activo en cada intervalo de tiempo. Las velas verdes indican un cierre superior a la apertura, y las rojas, un cierre inferior. Las Bandas de Bollinger consisten en una media móvil simple (SMA20) y dos bandas de desviación estándar por encima y por debajo. Se utilizan para medir la volatilidad, donde los precios que tocan las bandas sugieren un activo sobrecomprado o sobrevendido. La SMA20 (Media Móvil Simple de 20 periodos) suaviza los datos de precios para identificar la dirección de la tendencia a corto plazo.",
-    "Precio": "Este es un gráfico de línea simple que muestra el precio de cierre del activo a lo largo del tiempo. Las Bandas de Bollinger consisten en una media móvil simple (SMA20) y dos bandas de desviación estándar por encima y por debajo. Se utilizan para medir la volatilidad, donde los precios que tocan las bandas sugieren un activo sobrecomprado o sobrevendido. La SMA20 (Media Móvil Simple de 20 periodos) suaviza los datos de precios para identificar la dirección de la tendencia a corto plazo.",
+    "Candlestick": "Este es un gráfico de velas (candlestick) y de línea de precio que muestra el precio de apertura, cierre, máximo y mínimo del activo en cada intervalo de tiempo. Las velas verdes indican un cierre superior a la apertura, y las rojas, un cierre inferior. Las Bandas de Bollinger consisten en una media móvil simple (SMA20) y dos bandas de desviación estándar por encima y por debajo. Se utilizan para medir la volatilidad, donde los precios que tocan las bandas sugieren un activo sobrecomprado o sobrevendido. La SMA20 (Media Móvil Simple de 20 periodos) suaviza los datos de precios para identificar la dirección de la tendencia a corto plazo.",
     "RSI": "El Índice de Fuerza Relativa (RSI) es un oscilador de momentum que mide la velocidad y el cambio de los movimientos de precios. Valores por debajo de 30 sugieren que el activo está sobrevendido (potencial de compra), y valores por encima de 70, que está sobrecomprado (potencial de venta).",
     "MACD": "La Convergencia/Divergencia de la Media Móvil (MACD) se usa para identificar cambios en la dirección de la tendencia. Un cruce de la línea MACD sobre la línea de señal puede ser una señal de compra, y un cruce por debajo, una señal de venta. El histograma muestra la distancia entre ambas líneas.",
     "ADX": "El Índice Direccional Promedio (ADX) mide la fuerza de la tendencia. Un valor por encima de 25 indica una tendencia fuerte. El ADX no indica la dirección de la tendencia, solo su fuerza. Se suele usar junto con otros indicadores.",
@@ -203,39 +202,30 @@ def analyze_stock(ticker, period="5d", interval="15m", template='plotly_dark'):
     graphs = {}
     title_color = 'white'
 
-    # Gráfico de Candlestick con Bandas de Bollinger y SMA20
+    # Gráfico unificado de Candlestick con Bandas de Bollinger, SMA20 y línea de precio
     fig_candlestick = go.Figure(data=[
-        go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name='Candlestick'),
-        go.Scatter(x=df.index, y=df['Upper'], name="Banda Sup", connectgaps=False, line=dict(dash='dot', color='red')),
-        go.Scatter(x=df.index, y=df['Lower'], name="Banda Inf", connectgaps=False, line=dict(dash='dot', color='green')),
+        go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name='Velas', increasing_line_color='#66BB6A', decreasing_line_color='#EF5350'),
+        go.Scatter(x=df.index, y=df['Close'], name="Precio", connectgaps=False, line=dict(color='#42A5F5', width=1)),
+        go.Scatter(x=df.index, y=df['Upper'], name="Banda Sup", connectgaps=False, line=dict(dash='dot', color='#EF5350')),
+        go.Scatter(x=df.index, y=df['Lower'], name="Banda Inf", connectgaps=False, line=dict(dash='dot', color='#66BB6A')),
         go.Scatter(x=df.index, y=df['SMA20'], name="SMA20", connectgaps=False, line=dict(dash='dash', color='purple'))
     ])
-    fig_candlestick.update_layout(title_text="Precio (Candlestick) con Bandas de Bollinger y SMA20", template=template, title_font_color=title_color)
+    fig_candlestick.update_layout(title_text="Precio (Candlestick y Línea) con Bandas de Bollinger y SMA20", template=template, title_font_color=title_color)
     graphs["Candlestick"] = fig_candlestick
-
-    # Gráfico de Precio (línea)
-    fig_price = go.Figure([
-        go.Scatter(x=df.index, y=df['Close'], name="Cierre", connectgaps=False, line=dict(color='blue')),
-        go.Scatter(x=df.index, y=df['Upper'], name="Banda Sup", connectgaps=False, line=dict(dash='dot', color='red')),
-        go.Scatter(x=df.index, y=df['Lower'], name="Banda Inf", connectgaps=False, line=dict(dash='dot', color='green')),
-        go.Scatter(x=df.index, y=df['SMA20'], name="SMA20", connectgaps=False, line=dict(dash='dash', color='purple'))
-    ])
-    fig_price.update_layout(title_text="Precio (Línea) con Bandas de Bollinger y SMA20", template=template, title_font_color=title_color)
-    graphs["Precio"] = fig_price
 
     # Gráfico de RSI
     fig_rsi = go.Figure([
         go.Scatter(x=df.index, y=df['RSI'], name="RSI", connectgaps=False, line=dict(color='orange'))
     ])
     fig_rsi.update_layout(title_text="RSI", yaxis=dict(range=[0,100]), template=template, title_font_color=title_color)
-    fig_rsi.add_hline(y=RSI_OVERSOLD, line_dash="dot", line_color="green", annotation_text="Sobreventa")
-    fig_rsi.add_hline(y=RSI_OVERBOUGHT, line_dash="dot", line_color="red", annotation_text="Sobrecompra")
+    fig_rsi.add_hline(y=RSI_OVERSOLD, line_dash="dot", line_color="#66BB6A", annotation_text="Sobreventa")
+    fig_rsi.add_hline(y=RSI_OVERBOUGHT, line_dash="dot", line_color="#EF5350", annotation_text="Sobrecompra")
     graphs["RSI"] = fig_rsi
 
     # Gráfico de MACD
     fig_macd = go.Figure([
-        go.Scatter(x=df.index, y=df['MACD'], name="MACD", connectgaps=False, line=dict(color='blue')),
-        go.Scatter(x=df.index, y=df['Signal'], name="Señal", connectgaps=False, line=dict(color='red')),
+        go.Scatter(x=df.index, y=df['MACD'], name="MACD", connectgaps=False, line=dict(color='#42A5F5')),
+        go.Scatter(x=df.index, y=df['Signal'], name="Señal", connectgaps=False, line=dict(color='#EF5350')),
         go.Bar(x=df.index, y=df['MACD_hist'], name="Histograma", marker_color='grey')
     ])
     fig_macd.update_layout(title_text="MACD", template=template, title_font_color=title_color)
@@ -251,17 +241,17 @@ def analyze_stock(ticker, period="5d", interval="15m", template='plotly_dark'):
 
     # Gráfico de Estocástico
     fig_stoch = go.Figure([
-        go.Scatter(x=df.index, y=df['Stoch_K'], name="%K", connectgaps=False, line=dict(color='blue')),
-        go.Scatter(x=df.index, y=df['Stoch_D'], name="%D", connectgaps=False, line=dict(color='red'))
+        go.Scatter(x=df.index, y=df['Stoch_K'], name="%K", connectgaps=False, line=dict(color='#42A5F5')),
+        go.Scatter(x=df.index, y=df['Stoch_D'], name="%D", connectgaps=False, line=dict(color='#EF5350'))
     ])
     fig_stoch.update_layout(title_text="Estocástico", yaxis=dict(range=[0,100]), template=template, title_font_color=title_color)
-    fig_stoch.add_hline(y=STOCH_OVERSOLD, line_dash="dot", line_color="green", annotation_text="Sobreventa")
-    fig_stoch.add_hline(y=STOCH_OVERBOUGHT, line_dash="dot", line_color="red", annotation_text="Sobrecompra")
+    fig_stoch.add_hline(y=STOCH_OVERSOLD, line_dash="dot", line_color="#66BB6A", annotation_text="Sobreventa")
+    fig_stoch.add_hline(y=STOCH_OVERBOUGHT, line_dash="dot", line_color="#EF5350", annotation_text="Sobrecompra")
     graphs["Estocástico"] = fig_stoch
 
     # Gráfico de Volumen
     fig_vol = go.Figure([
-        go.Bar(x=df.index, y=df['Volume'], name="Volumen", marker_color='blue')
+        go.Bar(x=df.index, y=df['Volume'], name="Volumen", marker_color='#42A5F5')
     ])
     fig_vol.update_layout(title_text="Volumen", template=template, title_font_color=title_color)
     graphs["Volumen"] = fig_vol
@@ -285,13 +275,13 @@ app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP, dbc.themes
 app.title = "Análisis Técnico y Simulador de Trading"
 
 app.layout = html.Div(id='main-div', style={'backgroundColor': '#121212'}, children=[
-    dbc.Container(id='main-container', fluid=True, className="text-white", style={'marginTop': '95px'}, children=[
-        dbc.Row(id='header-row', className="fixed-top bg-dark shadow-sm p-3", children=[
+    dbc.Container(id='main-container', fluid=True, className="text-white", children=[ # Removed marginTop
+        dbc.Row(id='header-row', className="shadow-sm p-3", style={'backgroundColor': '#1e1e1e', 'borderRadius': '4px'}, children=[ # Changed background color and added border-radius
             dbc.Col(width=3, children=[
                 html.Div(id='company-name-output', className="mb-1 text-white text-center"),
                 dbc.InputGroup(children=[
                     html.Datalist(id='popular-tickers-list', children=[html.Option(value=ticker) for ticker in popular_tickers]),
-                    dbc.Input(id="ticker", value="AAPL", type="text", debounce=True, placeholder="Introduce un Ticker", className="bg-dark text-white border-secondary rounded-4", list='popular-tickers-list'),
+                    dbc.Input(id="ticker", value="AAPL", type="text", debounce=True, placeholder="Introduce un Ticker", className="text-white rounded-4", style={'backgroundColor': '#121212'}),
                     dbc.Button("🔄", id="refresh-button", n_clicks=0, className="btn-primary rounded-4")
                 ])
             ]),
@@ -300,7 +290,7 @@ app.layout = html.Div(id='main-div', style={'backgroundColor': '#121212'}, child
                     dbc.Col(html.Div(id="recomendacion", className="text-center fw-bold fs-4"), width=6),
                     dbc.Col(html.Div(id="analyst-output", className="text-center fs-5 text-white"), width=6),
                 ]),
-                html.Div(id='notification', className='text-center fs-5 text-warning')
+                html.Div(id='notification', className='text-center fs-5') # text-warning removed
             ], width=5, className="d-flex flex-column justify-content-center"),
             dbc.Col([
                 html.Div(id="market-status-info", className="text-center fs-5 text-white"),
@@ -309,14 +299,13 @@ app.layout = html.Div(id='main-div', style={'backgroundColor': '#121212'}, child
         ]),
 
         dbc.Tabs(id="tabs", active_tab="tab-candlestick", children=[
-            dbc.Tab(label='Candlestick', tab_id='tab-candlestick'),
-            dbc.Tab(label='Precio', tab_id='tab-price'),
+            dbc.Tab(label='Precio (Velas y Línea)', tab_id='tab-candlestick'),
             dbc.Tab(label='RSI', tab_id='tab-rsi'),
             dbc.Tab(label='MACD', tab_id='tab-macd'),
             dbc.Tab(label='ADX', tab_id='tab-adx'),
             dbc.Tab(label='Estocástico', tab_id='tab-stoch'),
             dbc.Tab(label='Volumen', tab_id='tab-volume'),
-        ], className="mb-4"),
+        ], className="mb-4", style={'border': 'none'}), # Changed to 'border': 'none'
         html.P(id="graph-description", className="text-white text-center"),
         dcc.Graph(id="grafico", config={'displayModeBar': False}),
 
@@ -325,7 +314,7 @@ app.layout = html.Div(id='main-div', style={'backgroundColor': '#121212'}, child
                 dbc.Card(id='sim-manual-card', className="mb-4 text-white rounded-4", style={'backgroundColor': '#1e1e1e'}, children=[
                     dbc.CardHeader(html.H4("Simulador Manual", id="sim-manual-title", className="text-center text-white"), className="rounded-4"),
                     dbc.CardBody([
-                        dbc.Input(id="cantidad", type="number", placeholder="Cantidad de acciones", min=1, step=1, value=1, className="mb-2 bg-dark text-white border-secondary rounded-5"),
+                        dbc.Input(id="cantidad", type="number", placeholder="Cantidad de acciones", min=1, step=1, value=1, className="mb-2 text-white rounded-5", style={'backgroundColor': '#121212'}),
                         dbc.Button("Comprar", id="comprar", n_clicks=0, className="btn-success me-2 rounded-5"),
                         dbc.Button("Vender", id="vender", n_clicks=0, className="btn-danger me-2 rounded-5"),
                         dbc.Button("Resetear Cartera", id="reset", n_clicks=0, className="btn-secondary rounded-5"),
@@ -349,7 +338,7 @@ app.layout = html.Div(id='main-div', style={'backgroundColor': '#121212'}, child
                             ),
                             dbc.Tooltip("Activa o desactiva la compra/venta automática basada en la recomendación del análisis.", target="auto-trade-toggle", placement="right")
                         ], id="auto-trade-toggle-wrapper"),
-                        dbc.Input(id="auto-trade-quantity", type="number", placeholder="Cantidad Auto", min=1, step=1, value=1, className="mb-2 bg-dark text-white border-secondary rounded-5"),
+                        dbc.Input(id="auto-trade-quantity", type="number", placeholder="Cantidad Auto", min=1, step=1, value=1, className="mb-2 text-white rounded-5", style={'backgroundColor': '#121212'}),
                         html.Div(id="auto-trade-status", className="mt-2 text-center text-info")
                     ])
                 ]),
@@ -357,7 +346,7 @@ app.layout = html.Div(id='main-div', style={'backgroundColor': '#121212'}, child
             )
         ]),
 
-        html.Hr(className="text-white"),
+        html.Hr(style={'borderColor': '#1e1e1e'}), # Changed color to blend with card/table background
         html.H4("Posiciones Abiertas", className="text-center mb-3 text-white"),
         dash_table.DataTable(
             id="open-positions-table",
@@ -379,14 +368,14 @@ app.layout = html.Div(id='main-div', style={'backgroundColor': '#121212'}, child
             },
             style_data_conditional=[
                 {"if": {"column_id": "Ganancia/Pérdida (No Realizada)", "filter_query": "{Ganancia/Pérdida (No Realizada)} > 0"},
-                 "color": "green"},
+                 "color": "#66BB6A"}, # Suavizado de green
                 {"if": {"column_id": "Ganancia/Pérdida (No Realizada)", "filter_query": "{Ganancia/Pérdida (No Realizada)} < 0"},
-                 "color": "red"}
+                 "color": "#EF5350"} # Suavizado de red
             ]
         ),
         html.Div(id="realized-pnl-message", className="text-center mt-2 fs-5 text-info"),
 
-        html.Hr(className="text-white"),
+        html.Hr(style={'borderColor': '#1e1e1e'}), # Changed color to blend with card/table background
         html.H4("Historial de Ventas Realizadas", className="text-center mb-3 text-white"),
         dash_table.DataTable(
             id="closed-trades-table",
@@ -409,9 +398,9 @@ app.layout = html.Div(id='main-div', style={'backgroundColor': '#121212'}, child
             },
             style_data_conditional=[
                 {"if": {"column_id": "Ganancia/Pérdida Realizada", "filter_query": "{Ganancia/Pérdida Realizada)} > 0"},
-                 "color": "green"},
+                 "color": "#66BB6A"}, # Suavizado de green
                 {"if": {"column_id": "Ganancia/Pérdida Realizada", "filter_query": "{Ganancia/Pérdida Realizada)} < 0"},
-                 "color": "red"}
+                 "color": "#EF5350"} # Suavizado de red
             ]
         ),
 
@@ -425,6 +414,7 @@ app.layout = html.Div(id='main-div', style={'backgroundColor': '#121212'}, child
 # Callback para actualizar los estilos de los componentes (ahora solo para modo oscuro)
 @app.callback(
     Output('header-row', 'className'),
+    Output('header-row', 'style'), # Added style output for header-row
     Output('open-positions-table', 'style_header'),
     Output('closed-trades-table', 'style_header'),
     Output('sim-manual-card', 'className'),
@@ -438,9 +428,10 @@ app.layout = html.Div(id='main-div', style={'backgroundColor': '#121212'}, child
 def update_ui_styles(n_intervals):
     # La clase 'fixed-top' y 'bg-dark' ya están en la definición del layout.
     # Esta función ahora solo actualiza los estilos de los otros componentes.
-    header_class = "fixed-top bg-dark shadow-sm p-3"
+    header_class = "shadow-sm p-3" # Removed fixed-top
+    header_style = {'backgroundColor': '#1e1e1e', 'borderRadius': '4px'} # Changed background color and added border-radius
 
-    header_style = {
+    header_table_style = {
         "backgroundColor": "#1e1e1e",
         "fontWeight": "bold",
         "color": "white",
@@ -451,19 +442,20 @@ def update_ui_styles(n_intervals):
     card_style = {'backgroundColor': '#1e1e1e'} 
     title_class = "text-center text-white"
     
-    return header_class, header_style, header_style, card_class, card_class, card_style, card_style, title_class, title_class
+    return header_class, header_style, header_table_style, header_table_style, card_class, card_class, card_style, card_style, title_class, title_class
 
 
 # Callback para la actualización de análisis completo (gráficos, recomendación, descripción)
 @app.callback(
     Output("grafico", "figure"),
     Output("recomendacion", "children"),
-    Output("recomendacion", "className"),
+    Output("recomendacion", "style"), # Changed from className to style
     Output("analyst-output", "children"),
     Output("analyst-output", "className"),
     Output("market-status-info", "children"),
     Output("current-price-info", "children"),
     Output('notification', 'children'),
+    Output('notification', 'style'), # Added style output for notification
     Output('graph-description', 'children'),
     Output('graph-description', 'className'),
     Output('company-name-output', 'children'), # Nuevo Output
@@ -483,7 +475,6 @@ def update_analysis_and_graphs(n_clicks, n_intervals, active_tab, ticker):
     # Mapeo de `tab_id` a nombre de gráfico
     tab_to_graph_name = {
         'tab-candlestick': 'Candlestick',
-        'tab-price': 'Precio',
         'tab-rsi': 'RSI',
         'tab-macd': 'MACD',
         'tab-adx': 'ADX',
@@ -496,7 +487,7 @@ def update_analysis_and_graphs(n_clicks, n_intervals, active_tab, ticker):
         rec, analyst, df, graphs, market_info, long_name = analyze_stock(current_ticker_in_input)
         
         if rec.startswith("Error:"):
-            return go.Figure(), rec, "text-center fw-bold fs-4 text-danger", f"🔍 Recomendación analista: N/A", "text-center fs-5 text-danger", "", "", "", "", "", "N/A"
+            return go.Figure(), rec, {'color': '#EF5350'}, f"🔍 Recomendación analista: N/A", "text-center fs-5 text-danger", "", "", "", {'color': '#FFA726'}, "", "N/A"
 
         latest_data.update({
             "ticker": current_ticker_in_input,
@@ -516,6 +507,7 @@ def update_analysis_and_graphs(n_clicks, n_intervals, active_tab, ticker):
         long_name = yf.Ticker(current_ticker_in_input).info.get("longName", current_ticker_in_input)
 
     notification_message = ""
+    notification_style = {'color': '#FFA726'} # Default warning color
     if changed_id == "analysis-update" and \
        latest_data["last_rec_for_notification"] is not None and \
        latest_data["last_rec_for_notification"] != rec:
@@ -526,13 +518,13 @@ def update_analysis_and_graphs(n_clicks, n_intervals, active_tab, ticker):
     description = GRAPH_DESCRIPTIONS.get(graph_name, "")
     description_class = "text-white text-center"
     
-    rec_class = "text-center fw-bold fs-4 "
+    rec_style = {} # Initialize style dictionary
     if rec == BUY_SIGNAL:
-        rec_class += "text-success"
+        rec_style['color'] = '#66BB6A' # Softer green
     elif rec == SELL_SIGNAL:
-        rec_class += "text-danger"
+        rec_style['color'] = '#EF5350' # Softer red
     else:
-        rec_class += "text-warning"
+        rec_style['color'] = '#FFA726' # Softer orange for warning/observe
     
     analyst_text = f"🔍 Recomendación analista: {analyst}"
     analyst_class = "text-center fs-5 text-white"
@@ -542,7 +534,7 @@ def update_analysis_and_graphs(n_clicks, n_intervals, active_tab, ticker):
     current_price = market_info.get('current_price')
     current_price_text = f"Precio: ${current_price:.2f}" if current_price is not None else ""
         
-    return fig, rec, rec_class, analyst_text, analyst_class, market_status_text, current_price_text, notification_message, description, description_class, long_name
+    return fig, rec, rec_style, analyst_text, analyst_class, market_status_text, current_price_text, notification_message, notification_style, description, description_class, long_name
 
 # Callback para la actualización de precios y cartera (más frecuente)
 @app.callback(
@@ -592,6 +584,7 @@ def update_portfolio(n_intervals, buy_clicks, sell_clicks, reset_clicks, auto_tr
 @app.callback(
     Output("realized-pnl-message", "children", allow_duplicate=True),
     Output("notification", "children", allow_duplicate=True),
+    Output("notification", "style", allow_duplicate=True), # Added style output for notification
     Output("closed-trades-table", "data", allow_duplicate=True),
     Input("comprar", "n_clicks"),
     Input("vender", "n_clicks"),
@@ -604,8 +597,10 @@ def handle_manual_trading(buy_clicks, sell_clicks, ticker, cantidad_manual):
     ctx = callback_context
     changed_id = ctx.triggered[0]["prop_id"].split(".")[0]
     
+    notification_style = {'color': '#FFA726'} # Default warning color
+
     if latest_data["df"].empty:
-        return "", "❌ No se puede operar sin datos del ticker.", portfolio["closed_trades"]
+        return "", "❌ No se puede operar sin datos del ticker.", notification_style, portfolio["closed_trades"]
     
     current_ticker_in_input = ticker.strip().upper()
     now_price = latest_data["df"]["Close"].iloc[-1]
@@ -628,9 +623,11 @@ def handle_manual_trading(buy_clicks, sell_clicks, ticker, cantidad_manual):
             
             portfolio["cash"] -= costo_total
             notification_message = f"✅ Compradas {cantidad_manual} acciones de {current_ticker_in_input} a ${now_price:.2f} cada una."
+            notification_style = {'color': '#66BB6A'} # Softer green for success
             save_portfolio(portfolio)
         else:
             notification_message = "❌ Fondos insuficientes para realizar la compra."
+            notification_style = {'color': '#EF5350'} # Softer red for error
             
     elif changed_id == "vender" and cantidad_manual:
         if current_ticker_in_input in portfolio["stocks"] and portfolio["stocks"][current_ticker_in_input]["qty"] >= cantidad_manual:
@@ -654,15 +651,19 @@ def handle_manual_trading(buy_clicks, sell_clicks, ticker, cantidad_manual):
                 del portfolio["stocks"][current_ticker_in_input]
             
             notification_message = f"✅ Vendidas {cantidad_manual} acciones de {current_ticker_in_input} a ${now_price:.2f} cada una."
+            notification_style = {'color': '#66BB6A'} # Softer green for success
+            latest_data["last_auto_trade_rec"][current_ticker_in_input] = SELL_SIGNAL
             save_portfolio(portfolio)
         else:
             notification_message = "❌ No tienes suficientes acciones para vender."
+            notification_style = {'color': '#EF5350'} # Softer red for error
     
-    return realized_pnl_message, notification_message, portfolio["closed_trades"]
+    return realized_pnl_message, notification_message, notification_style, portfolio["closed_trades"]
 
 # Callback para el botón de reset
 @app.callback(
     Output("notification", "children", allow_duplicate=True),
+    Output("notification", "style", allow_duplicate=True), # Added style output for notification
     Output("realized-pnl-message", "children", allow_duplicate=True),
     Output("closed-trades-table", "data", allow_duplicate=True),
     Input("reset", "n_clicks"),
@@ -670,18 +671,21 @@ def handle_manual_trading(buy_clicks, sell_clicks, ticker, cantidad_manual):
 )
 def handle_reset_portfolio(n_clicks):
     global portfolio
+    notification_style = {'color': '#FFA726'} # Default warning color
     if n_clicks > 0:
         portfolio["cash"] = portfolio["initial_cash"]
         portfolio["stocks"] = {}
         portfolio["closed_trades"] = []
         save_portfolio(portfolio)
-        return "🔄 Cartera reseteada a los valores iniciales.", "", []
-    return "", "", portfolio["closed_trades"]
+        notification_style = {'color': '#42A5F5'} # Softer blue for info/reset
+        return "🔄 Cartera reseteada a los valores iniciales.", notification_style, "", []
+    return "", notification_style, "", portfolio["closed_trades"]
 
 # Callback para la lógica de trading automática
 @app.callback(
     Output("auto-trade-status", "children"),
     Output("notification", "children", allow_duplicate=True),
+    Output("notification", "style", allow_duplicate=True), # Added style output for notification
     Output("realized-pnl-message", "children", allow_duplicate=True),
     Output("closed-trades-table", "data", allow_duplicate=True),
     Input('analysis-update', 'n_intervals'),
@@ -701,13 +705,14 @@ def handle_auto_trading(n_intervals, ticker, auto_trade_toggle_value, auto_trade
     notification_message = ""
     auto_trade_status_message = "Automático: Desactivado."
     realized_pnl_message = ""
+    notification_style = {'color': '#FFA726'} # Default warning color
 
     if not is_auto_trade_enabled:
-        return auto_trade_status_message, notification_message, realized_pnl_message, portfolio["closed_trades"]
+        return auto_trade_status_message, notification_message, notification_style, realized_pnl_message, portfolio["closed_trades"]
 
     if latest_data["df"].empty or latest_data["ticker"] != current_ticker_in_input:
         auto_trade_status_message = f"Automático: Activado. Esperando datos para {current_ticker_in_input}."
-        return auto_trade_status_message, notification_message, realized_pnl_message, portfolio["closed_trades"]
+        return auto_trade_status_message, notification_message, notification_style, realized_pnl_message, portfolio["closed_trades"]
 
     rec = latest_data["rec"]
     now_price = latest_data["df"]["Close"].iloc[-1]
@@ -729,10 +734,12 @@ def handle_auto_trading(n_intervals, ticker, auto_trade_toggle_value, auto_trade
                 
                 portfolio["cash"] -= costo_total_auto
                 notification_message = f"🤖 Compra automática de {auto_trade_qty} acciones de {current_ticker_in_input} a ${now_price:.2f}."
+                notification_style = {'color': '#66BB6A'} # Softer green for success
                 latest_data["last_auto_trade_rec"][current_ticker_in_input] = BUY_SIGNAL
                 save_portfolio(portfolio)
             else:
                 auto_trade_status_message = "Automático: Fondos insuficientes para comprar."
+                notification_style = {'color': '#EF5350'} # Softer red for error
     
     elif rec == SELL_SIGNAL:
         if last_auto_rec_for_ticker != SELL_SIGNAL:
@@ -757,15 +764,17 @@ def handle_auto_trading(n_intervals, ticker, auto_trade_toggle_value, auto_trade
                     del portfolio["stocks"][current_ticker_in_input]
                 
                 notification_message = f"🤖 Venta automática de {auto_trade_qty} acciones de {current_ticker_in_input} a ${now_price:.2f}."
+                notification_style = {'color': '#66BB6A'} # Softer green for success
                 latest_data["last_auto_trade_rec"][current_ticker_in_input] = SELL_SIGNAL
                 save_portfolio(portfolio)
             else:
                 auto_trade_status_message = "Automático: No hay suficientes acciones para vender."
+                notification_style = {'color': '#EF5350'} # Softer red for error
     else:
         latest_data["last_auto_trade_rec"][current_ticker_in_input] = rec
         auto_trade_status_message = f"Automático: {rec} para {current_ticker_in_input}. Esperando señal de compra/venta."
 
-    return auto_trade_status_message, notification_message, realized_pnl_message, portfolio["closed_trades"]
+    return auto_trade_status_message, notification_message, notification_style, realized_pnl_message, portfolio["closed_trades"]
 
 
 if __name__ == "__main__":
