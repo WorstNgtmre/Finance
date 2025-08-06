@@ -1,0 +1,5 @@
+Añadir más Indicadores Técnicos:
+
+    - Nuevos Indicadores: Podrías incluir otros indicadores populares como el Volumen de Equilibrio (OBV), el Nivel de Retroceso de Fibonacci, el Indicador de Nube de Ichimoku o las Medias Móviles Exponenciales (EMA).
+
+    - Más Señales de Trading: Al incorporar nuevos indicadores, podrías añadir más reglas a tu lógica de compra/venta automática para hacerla más sofisticada.

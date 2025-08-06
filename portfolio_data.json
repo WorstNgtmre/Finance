@@ -1,12 +1,29 @@
 {
-    "cash": 99796.0,
+    "cash": 99797.07000732422,
     "stocks": {
         "AAPL": {
             "qty": 1,
-            "avg_price": 204.0,
-            "buy_date": "2025-08-05 19:28:22"
+            "avg_price": 202.92999267578125,
+            "buy_date": "2025-08-06 02:03:34"
         }
     },
     "initial_cash": 100000.0,
-    "closed_trades": []
+    "closed_trades": [
+        {
+            "Fecha Venta": "2025-08-06 01:57:10",
+            "Ticker": "AAPL",
+            "Cantidad": 1,
+            "Precio Compra Promedio": 202.93,
+            "Precio Venta": 202.93,
+            "Ganancia/P\u00e9rdida Realizada": 0.0
+        },
+        {
+            "Fecha Venta": "2025-08-06 01:57:11",
+            "Ticker": "AAPL",
+            "Cantidad": 1,
+            "Precio Compra Promedio": 202.93,
+            "Precio Venta": 202.93,
+            "Ganancia/P\u00e9rdida Realizada": 0.0
+        }
+    ]
 }

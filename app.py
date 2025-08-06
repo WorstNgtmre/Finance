@@ -6,8 +6,9 @@ import plotly.graph_objs as go
 import ta
 import dash_bootstrap_components as dbc
 from datetime import datetime, time, timedelta
-import json # Importamos la librería json
-import os   # Importamos la librería os para verificar archivos
+import json
+import os
+import yfinance.exceptions
 
 # --------------------- VARIABLES GLOBALES ---------------------
 # Ruta del archivo donde se guardará el portfolio
@@ -20,6 +21,25 @@ initial_portfolio_state = {
     "initial_cash": 100000.0,
     "closed_trades": [] # [{"Fecha Venta": ..., "Ticker": ..., "Cantidad": ..., "Precio Compra Promedio": ..., "Precio Venta": ..., "Ganancia/Pérdida Realizada": ...}]
 }
+
+# Constantes para la lógica de trading y UI
+RSI_OVERSOLD = 30
+RSI_OVERBOUGHT = 70
+STOCH_OVERSOLD = 20
+STOCH_OVERBOUGHT = 80
+ADX_TREND_THRESHOLD = 25
+VOLUME_SMA_MULTIPLIER = 1.5
+
+BUY_SIGNAL = "📈 Comprar"
+SELL_SIGNAL = "📉 Vender"
+OBSERVE_SIGNAL = "👁 Observar"
+HOLD_SIGNAL = "🤝 Mantener"
+
+# Lista de tickers populares para el datalist
+popular_tickers = [
+    'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'NVDA', 'META', 'BRK-B', 'JPM', 'JNJ',
+    'ITX.MC', 'SAN.MC', 'IBE.MC', 'TEF.MC', 'BBVA.MC', 'NKE'
+]
 
 # Carga el portfolio al inicio del programa o usa el estado inicial
 def load_portfolio():
@@ -46,7 +66,18 @@ def save_portfolio(data):
 portfolio = load_portfolio() # Cargar el portfolio al iniciar la aplicación
 
 # Cache para los datos más recientes del ticker
-latest_data = {"ticker": None, "graphs": {}, "df": pd.DataFrame(), "rec": "", "analyst": "", "last_rec_for_notification": None, "last_auto_trade_rec": {}}
+latest_data = {"ticker": None, "graphs": {}, "df": pd.DataFrame(), "rec": "", "analyst": "", "market_info": {}, "last_rec_for_notification": None, "last_auto_trade_rec": {}}
+
+# Descripciones para los gráficos
+GRAPH_DESCRIPTIONS = {
+    "Candlestick": "El gráfico de velas (candlestick) muestra el precio de apertura, cierre, máximo y mínimo del activo en cada intervalo de tiempo. Las velas verdes indican un cierre superior a la apertura, y las rojas, un cierre inferior. Las Bandas de Bollinger consisten en una media móvil simple (SMA20) y dos bandas de desviación estándar por encima y por debajo. Se utilizan para medir la volatilidad, donde los precios que tocan las bandas sugieren un activo sobrecomprado o sobrevendido. La SMA20 (Media Móvil Simple de 20 periodos) suaviza los datos de precios para identificar la dirección de la tendencia a corto plazo.",
+    "Precio": "Este es un gráfico de línea simple que muestra el precio de cierre del activo a lo largo del tiempo. Las Bandas de Bollinger consisten en una media móvil simple (SMA20) y dos bandas de desviación estándar por encima y por debajo. Se utilizan para medir la volatilidad, donde los precios que tocan las bandas sugieren un activo sobrecomprado o sobrevendido. La SMA20 (Media Móvil Simple de 20 periodos) suaviza los datos de precios para identificar la dirección de la tendencia a corto plazo.",
+    "RSI": "El Índice de Fuerza Relativa (RSI) es un oscilador de momentum que mide la velocidad y el cambio de los movimientos de precios. Valores por debajo de 30 sugieren que el activo está sobrevendido (potencial de compra), y valores por encima de 70, que está sobrecomprado (potencial de venta).",
+    "MACD": "La Convergencia/Divergencia de la Media Móvil (MACD) se usa para identificar cambios en la dirección de la tendencia. Un cruce de la línea MACD sobre la línea de señal puede ser una señal de compra, y un cruce por debajo, una señal de venta. El histograma muestra la distancia entre ambas líneas.",
+    "ADX": "El Índice Direccional Promedio (ADX) mide la fuerza de la tendencia. Un valor por encima de 25 indica una tendencia fuerte. El ADX no indica la dirección de la tendencia, solo su fuerza. Se suele usar junto con otros indicadores.",
+    "Estocástico": "El oscilador estocástico es un indicador de momentum que compara el precio de cierre de un activo con su rango de precios durante un período de tiempo determinado. Valores por debajo de 20 se consideran sobrevendidos, y por encima de 80, sobrecomprados.",
+    "Volumen": "El gráfico de volumen muestra la cantidad de acciones negociadas en cada intervalo. Un alto volumen durante un movimiento de precio fuerte puede confirmar la tendencia. Las barras azules indican que el volumen es alto."
+}
 
 # --------------------- FUNCIONES AUXILIARES ---------------------
 def get_market_rangebreaks():
@@ -59,166 +90,146 @@ def get_market_rangebreaks():
 def calculate_indicators(df):
     """
     Calcula varios indicadores técnicos usando la librería 'ta' y los añade al DataFrame.
-    
-    Args:
-        df (pd.DataFrame): DataFrame con columnas 'Open', 'High', 'Low', 'Close', 'Volume'.
-        
-    Returns:
-        pd.DataFrame: DataFrame con los indicadores añadidos.
     """
-    # Índice de Fuerza Relativa (RSI)
     df['RSI'] = ta.momentum.RSIIndicator(df['Close'], window=14).rsi()
     
-    # Convergencia/Divergencia de Medias Móviles (MACD)
     macd = ta.trend.MACD(df['Close'])
     df['MACD'] = macd.macd()
     df['Signal'] = macd.macd_signal()
-    df['MACD_hist'] = macd.macd_diff() # Histograma MACD
+    df['MACD_hist'] = macd.macd_diff()
     
-    # Bandas de Bollinger
     boll = ta.volatility.BollingerBands(df['Close'], window=20, window_dev=2)
-    df['Upper'] = boll.bollinger_hband() # Banda superior
-    df['Lower'] = boll.bollinger_lband() # Banda inferior
-    df['SMA20'] = ta.trend.SMAIndicator(df['Close'], window=20).sma_indicator() # Media móvil simple de 20 periodos
+    df['Upper'] = boll.bollinger_hband()
+    df['Lower'] = boll.bollinger_lband()
+    df['SMA20'] = ta.trend.SMAIndicator(df['Close'], window=20).sma_indicator()
     
-    # Índice Direccional Promedio (ADX)
     df['ADX'] = ta.trend.ADXIndicator(df['High'], df['Low'], df['Close']).adx()
     
-    # Oscilador Estocástico
     stoch = ta.momentum.StochasticOscillator(df['High'], df['Low'], df['Close'])
-    df['Stoch_K'] = stoch.stoch() # Línea %K
-    df['Stoch_D'] = stoch.stoch_signal() # Línea %D
+    df['Stoch_K'] = stoch.stoch()
+    df['Stoch_D'] = stoch.stoch_signal()
 
-    # Media Móvil Simple del Volumen (para la nueva regla de volumen)
     df['Volume_SMA'] = df['Volume'].rolling(window=10).mean()
     
     return df
 
 # --------------------- FUNCION PRINCIPAL DE ANALISIS Y RECOMENDACION ---------------------
-def analyze_stock(ticker, period="5d", interval="15m"):
+def analyze_stock(ticker, period="5d", interval="15m", template='plotly_dark'):
     """
     Obtiene datos de un ticker, calcula indicadores, genera gráficos
     y emite una recomendación de trading basada en la lógica.
-    
-    Args:
-        ticker (str): Símbolo del ticker (ej. "AAPL").
-        period (str): Periodo de tiempo para obtener datos (ej. "5d", "1mo").
-        interval (str): Intervalo de los datos (ej. "15m", "1h").
-        
-    Returns:
-        tuple: (recomendacion, recomendacion_analista, df_con_indicadores, diccionario_de_graficos, df_completo_para_simulador)
     """
-    stock = yf.Ticker(ticker)
-    info = stock.info # Información general del ticker
-    hist = stock.history(period=period, interval=interval) # Datos históricos
+    try:
+        stock = yf.Ticker(ticker)
+        info = stock.info
+        hist = stock.history(period=period, interval=interval)
+        long_name = info.get("longName", ticker) # Obtener el nombre completo de la empresa
+    except (yfinance.exceptions.YFPricesError, ConnectionError, Exception) as e:
+        return f"Error: No se pudo obtener datos para el Ticker '{ticker}'. Detalles: {e}", "N/A", pd.DataFrame(), {}, {}, "N/A"
+    
+    if hist.empty or "Close" not in hist.columns:
+        return "No hay datos", "N/A", hist, {}, {}, long_name
 
-    if hist.empty:
-        # Si no hay datos, devuelve valores por defecto
-        return "No hay datos", "N/A", hist, {}, pd.DataFrame()
-
-    # Filtra filas donde el volumen es 0 (usualmente fuera del horario de mercado)
     hist = hist[hist['Volume'] > 0]
     
-    # Calcula los indicadores técnicos
     df = calculate_indicators(hist.copy())
 
-    # --- Coeficientes para el peso de cada indicador (ajustables para day trading) ---
-    # Puedes cambiar estos valores para darle más o menos importancia a cada indicador.
-    # Un valor más alto significa que la señal de ese indicador tendrá un mayor impacto.
-    COEF_BOLLINGER = 1.0 # Peso para las Bandas de Bollinger
-    COEF_RSI = 2.0       # Mayor peso para RSI (indicador de corto plazo)
-    COEF_MACD = 2.0      # Mayor peso para MACD (indicador de corto plazo)
-    COEF_STOCH = 2.0     # Mayor peso para Oscilador Estocástico (indicador de corto plazo)
-    COEF_ADX_SMA = 1.0   # Peso para ADX y SMA20 (indicadores de tendencia)
-    COEF_VOLUME = 1.0    # Nuevo peso para la regla de Volumen
-    # ---------------------------------------------------------------------------------
+    COEF_BOLLINGER = 1.0
+    COEF_RSI = 2.0
+    COEF_MACD = 2.0
+    COEF_STOCH = 2.0
+    COEF_ADX_SMA = 1.0
+    COEF_VOLUME = 1.0
 
-    # Lógica de recomendación basada en indicadores
     buy_score = 0.0
     sell_score = 0.0
 
-    # Reglas de Bandas de Bollinger
     if not df.empty and df['Close'].iloc[-1] < df['Lower'].iloc[-1]:
-        buy_score += COEF_BOLLINGER # Precio por debajo de la banda inferior (señal de compra)
+        buy_score += COEF_BOLLINGER
     if not df.empty and df['Close'].iloc[-1] > df['Upper'].iloc[-1]:
-        sell_score += COEF_BOLLINGER # Precio por encima de la banda superior (señal de venta)
+        sell_score += COEF_BOLLINGER
 
-    # Reglas de RSI
-    if not df.empty and df['RSI'].iloc[-1] < 30:
-        buy_score += COEF_RSI # RSI por debajo de 30 (sobreventa, señal de compra fuerte)
-    elif not df.empty and df['RSI'].iloc[-1] > 70:
-        sell_score += COEF_RSI # RSI por encima de 70 (sobrecompra, señal de venta fuerte)
+    if not df.empty and df['RSI'].iloc[-1] < RSI_OVERSOLD:
+        buy_score += COEF_RSI
+    elif not df.empty and df['RSI'].iloc[-1] > RSI_OVERBOUGHT:
+        sell_score += COEF_RSI
 
-    # Reglas de MACD (cruce de líneas)
     if not df.empty and len(df) >= 2:
         if df['MACD'].iloc[-1] > df['Signal'].iloc[-1] and df['MACD'].iloc[-2] <= df['Signal'].iloc[-2]:
-            buy_score += COEF_MACD # Cruce alcista (MACD cruza por encima de la señal, señal de compra fuerte)
+            buy_score += COEF_MACD
         elif df['MACD'].iloc[-1] < df['Signal'].iloc[-1] and df['MACD'].iloc[-2] >= df['Signal'].iloc[-2]:
-            sell_score += COEF_MACD # Cruce bajista (MACD cruza por debajo de la señal, señal de venta fuerte)
+            sell_score += COEF_MACD
 
-    # Reglas de Oscilador Estocástico
-    if not df.empty and df['Stoch_K'].iloc[-1] < 20 and df['Stoch_D'].iloc[-1] < 20:
-        buy_score += COEF_STOCH # Estocástico sobreventa (señal de compra fuerte)
-    elif not df.empty and df['Stoch_K'].iloc[-1] > 80 and df['Stoch_D'].iloc[-1] > 80:
-        sell_score += COEF_STOCH # Estocástico sobrecompra (señal de venta fuerte)
+    if not df.empty and df['Stoch_K'].iloc[-1] < STOCH_OVERSOLD and df['Stoch_D'].iloc[-1] < STOCH_OVERSOLD:
+        buy_score += COEF_STOCH
+    elif not df.empty and df['Stoch_K'].iloc[-1] > STOCH_OVERBOUGHT and df['Stoch_D'].iloc[-1] > STOCH_OVERBOUGHT:
+        sell_score += COEF_STOCH
 
-    # Reglas de ADX y SMA20 (fuerza de tendencia)
-    if not df.empty and df['ADX'].iloc[-1] > 25: # Si hay una tendencia fuerte
+    if not df.empty and df['ADX'].iloc[-1] > ADX_TREND_THRESHOLD:
         if df['Close'].iloc[-1] > df['SMA20'].iloc[-1]:
-            buy_score += COEF_ADX_SMA # Precio por encima de SMA20 (tendencia alcista, señal de compra)
+            buy_score += COEF_ADX_SMA
         else:
-            sell_score += COEF_ADX_SMA # Precio por debajo de SMA20 (tendencia bajista, señal de venta)
+            sell_score += COEF_ADX_SMA
 
-    # Nueva Regla de Volumen: Volumen alto con movimiento de precio
-    # Se considera volumen alto si es 1.5 veces la media móvil de volumen
     if not df.empty and len(df) >= 2 and not df['Volume_SMA'].iloc[-1] == 0:
-        if df['Volume'].iloc[-1] > (1.5 * df['Volume_SMA'].iloc[-1]): # Si el volumen actual es significativamente alto
-            if df['Close'].iloc[-1] > df['Close'].iloc[-2]: # Y el precio subió
+        if df['Volume'].iloc[-1] > (VOLUME_SMA_MULTIPLIER * df['Volume_SMA'].iloc[-1]):
+            if df['Close'].iloc[-1] > df['Close'].iloc[-2]:
                 buy_score += COEF_VOLUME
-            elif df['Close'].iloc[-1] < df['Close'].iloc[-2]: # Y el precio bajó
+            elif df['Close'].iloc[-1] < df['Close'].iloc[-2]:
                 sell_score += COEF_VOLUME
 
-    # Determina la recomendación final
-    # La diferencia de 1.0 en la condición es un umbral para que la recomendación sea más decisiva.
-    # Puedes ajustar este umbral también.
     if buy_score > sell_score + 1.0: 
-        recommendation = "📈 Comprar"
+        recommendation = BUY_SIGNAL
     elif sell_score > buy_score + 1.0:
-        recommendation = "📉 Vender"
+        recommendation = SELL_SIGNAL
     elif buy_score > 0.0 or sell_score > 0.0:
-        recommendation = "👁 Observar" # Hay señales, pero no lo suficientemente fuertes para una acción clara
+        recommendation = OBSERVE_SIGNAL
     else:
-        recommendation = "🤝 Mantener" # No hay señales claras de compra o venta
+        recommendation = HOLD_SIGNAL
 
-    # Obtiene la recomendación de analistas de Yahoo Finance
     analyst_rec = info.get("recommendationKey", "No disponible").capitalize()
 
-    # Generación de gráficos
+    market_info = {}
+    market_state = info.get('marketState', 'CLOSED')
+    
+    if market_state in ['REGULAR']:
+        market_info['status'] = "Abierto"
+        market_info['current_price'] = df['Close'].iloc[-1]
+    else:
+        market_info['status'] = "Cerrado"
+        market_info['current_price'] = None
+
     rangebreaks = get_market_rangebreaks()
     graphs = {}
+    title_color = 'white'
 
-    # Lista de figuras a las que añadir las líneas de separación diaria
-    figures_to_update = []
+    # Gráfico de Candlestick con Bandas de Bollinger y SMA20
+    fig_candlestick = go.Figure(data=[
+        go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name='Candlestick'),
+        go.Scatter(x=df.index, y=df['Upper'], name="Banda Sup", connectgaps=False, line=dict(dash='dot', color='red')),
+        go.Scatter(x=df.index, y=df['Lower'], name="Banda Inf", connectgaps=False, line=dict(dash='dot', color='green')),
+        go.Scatter(x=df.index, y=df['SMA20'], name="SMA20", connectgaps=False, line=dict(dash='dash', color='purple'))
+    ])
+    fig_candlestick.update_layout(title_text="Precio (Candlestick) con Bandas de Bollinger y SMA20", template=template, title_font_color=title_color)
+    graphs["Candlestick"] = fig_candlestick
 
-    # Gráfico de Precio con Bandas de Bollinger y SMA20
+    # Gráfico de Precio (línea)
     fig_price = go.Figure([
         go.Scatter(x=df.index, y=df['Close'], name="Cierre", connectgaps=False, line=dict(color='blue')),
         go.Scatter(x=df.index, y=df['Upper'], name="Banda Sup", connectgaps=False, line=dict(dash='dot', color='red')),
         go.Scatter(x=df.index, y=df['Lower'], name="Banda Inf", connectgaps=False, line=dict(dash='dot', color='green')),
         go.Scatter(x=df.index, y=df['SMA20'], name="SMA20", connectgaps=False, line=dict(dash='dash', color='purple'))
     ])
-    fig_price.update_layout(title="Precio con Bandas de Bollinger y SMA20", xaxis=dict(rangebreaks=rangebreaks))
-    figures_to_update.append(fig_price)
+    fig_price.update_layout(title_text="Precio (Línea) con Bandas de Bollinger y SMA20", template=template, title_font_color=title_color)
     graphs["Precio"] = fig_price
 
     # Gráfico de RSI
     fig_rsi = go.Figure([
         go.Scatter(x=df.index, y=df['RSI'], name="RSI", connectgaps=False, line=dict(color='orange'))
     ])
-    fig_rsi.update_layout(title="RSI", xaxis=dict(rangebreaks=rangebreaks), yaxis=dict(range=[0,100]))
-    fig_rsi.add_hline(y=30, line_dash="dot", line_color="green", annotation_text="Sobreventa")
-    fig_rsi.add_hline(y=70, line_dash="dot", line_color="red", annotation_text="Sobrecompra")
-    figures_to_update.append(fig_rsi)
+    fig_rsi.update_layout(title_text="RSI", yaxis=dict(range=[0,100]), template=template, title_font_color=title_color)
+    fig_rsi.add_hline(y=RSI_OVERSOLD, line_dash="dot", line_color="green", annotation_text="Sobreventa")
+    fig_rsi.add_hline(y=RSI_OVERBOUGHT, line_dash="dot", line_color="red", annotation_text="Sobrecompra")
     graphs["RSI"] = fig_rsi
 
     # Gráfico de MACD
@@ -227,17 +238,15 @@ def analyze_stock(ticker, period="5d", interval="15m"):
         go.Scatter(x=df.index, y=df['Signal'], name="Señal", connectgaps=False, line=dict(color='red')),
         go.Bar(x=df.index, y=df['MACD_hist'], name="Histograma", marker_color='grey')
     ])
-    fig_macd.update_layout(title="MACD", xaxis=dict(rangebreaks=rangebreaks))
-    figures_to_update.append(fig_macd)
+    fig_macd.update_layout(title_text="MACD", template=template, title_font_color=title_color)
     graphs["MACD"] = fig_macd
 
     # Gráfico de ADX
     fig_adx = go.Figure([
         go.Scatter(x=df.index, y=df['ADX'], name="ADX", connectgaps=False, line=dict(color='purple'))
     ])
-    fig_adx.update_layout(title="ADX", xaxis=dict(rangebreaks=rangebreaks), yaxis=dict(range=[0,100]))
-    fig_adx.add_hline(y=25, line_dash="dot", line_color="grey", annotation_text="Tendencia")
-    figures_to_update.append(fig_adx)
+    fig_adx.update_layout(title_text="ADX", yaxis=dict(range=[0,100]), template=template, title_font_color=title_color)
+    fig_adx.add_hline(y=ADX_TREND_THRESHOLD, line_dash="dot", line_color="grey", annotation_text="Tendencia")
     graphs["ADX"] = fig_adx
 
     # Gráfico de Estocástico
@@ -245,285 +254,368 @@ def analyze_stock(ticker, period="5d", interval="15m"):
         go.Scatter(x=df.index, y=df['Stoch_K'], name="%K", connectgaps=False, line=dict(color='blue')),
         go.Scatter(x=df.index, y=df['Stoch_D'], name="%D", connectgaps=False, line=dict(color='red'))
     ])
-    fig_stoch.update_layout(title="Estocástico", xaxis=dict(rangebreaks=rangebreaks), yaxis=dict(range=[0,100]))
-    fig_stoch.add_hline(y=20, line_dash="dot", line_color="green", annotation_text="Sobreventa")
-    fig_stoch.add_hline(y=80, line_dash="dot", line_color="red", annotation_text="Sobrecompra")
-    figures_to_update.append(fig_stoch)
+    fig_stoch.update_layout(title_text="Estocástico", yaxis=dict(range=[0,100]), template=template, title_font_color=title_color)
+    fig_stoch.add_hline(y=STOCH_OVERSOLD, line_dash="dot", line_color="green", annotation_text="Sobreventa")
+    fig_stoch.add_hline(y=STOCH_OVERBOUGHT, line_dash="dot", line_color="red", annotation_text="Sobrecompra")
     graphs["Estocástico"] = fig_stoch
 
     # Gráfico de Volumen
     fig_vol = go.Figure([
-        go.Bar(x=df.index, y=df['Volume'], name="Volumen", marker_color='lightgrey')
+        go.Bar(x=df.index, y=df['Volume'], name="Volumen", marker_color='blue')
     ])
-    fig_vol.update_layout(title="Volumen", xaxis=dict(rangebreaks=rangebreaks))
-    figures_to_update.append(fig_vol)
+    fig_vol.update_layout(title_text="Volumen", template=template, title_font_color=title_color)
     graphs["Volumen"] = fig_vol
 
-    # --- Añadir líneas verticales para separar los días ---
-    unique_days = df.index.normalize().unique() # Obtiene solo la parte de la fecha (sin la hora)
-    for day in unique_days:
-        # Para cada día, añade una línea vertical al inicio del día
-        # Solo añade la línea si no es el último día completo, para evitar una línea al final
-        if day != unique_days.max(): # Evita dibujar una línea al final del último día
-            for fig in figures_to_update:
-                fig.add_vline(
-                    x=pd.Timestamp(day), # Posición de la línea (inicio del día)
-                    line_width=1,
-                    line_dash="dash",
-                    line_color="rgba(128, 128, 128, 0.5)" # Color gris semitransparente
-                )
-    # -----------------------------------------------------
-
-    return recommendation, analyst_rec, df, graphs, df
+    # Actualizar todos los gráficos para que muestren el rango completo de datos
+    for fig in graphs.values():
+        fig.update_layout(xaxis_rangeslider_visible=False, xaxis=dict(rangebreaks=get_market_rangebreaks()))
+        unique_days = df.index.normalize().unique()
+        daily_lines = [
+            go.layout.Shape(type="line", x0=pd.Timestamp(day), x1=pd.Timestamp(day), y0=0, y1=1,
+                            yref="paper", line=dict(width=1, dash="dash", color="rgba(128, 128, 128, 0.5)"))
+            for day in unique_days if day != unique_days.max()
+        ]
+        fig.update_layout(shapes=daily_lines)
+    
+    return recommendation, analyst_rec, df, graphs, market_info, long_name
 
 # --------------------- DASH APP ---------------------
 
-app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
+app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP, dbc.themes.DARKLY])
 app.title = "Análisis Técnico y Simulador de Trading"
 
-app.layout = dbc.Container([
-    dbc.Row([
-        dbc.Col([
-            html.H3("Análisis de Ticker", className="text-center mb-3"),
-            dbc.Input(id="ticker", value="AAPL", type="text", debounce=True, placeholder="Introduce un Ticker"),
-            dbc.Button("Actualizar Datos", id="actualizar", n_clicks=0, className="mt-2 w-100 btn-primary")
-        ], width=4, className="d-flex flex-column align-items-center"),
-        dbc.Col([
-            html.Div(id="recomendacion", className="text-center my-3 fw-bold fs-4 text-success"),
-            html.Div(id="analyst-output", className="text-center fs-5 text-muted"),
-            html.Div(id='notification', className='text-center fs-5 text-warning')
-        ], width=8, className="d-flex flex-column justify-content-center")
-    ], className="my-4 p-3 border rounded shadow-sm bg-light"),
+app.layout = html.Div(id='main-div', style={'backgroundColor': '#121212'}, children=[
+    dbc.Container(id='main-container', fluid=True, className="text-white", style={'marginTop': '95px'}, children=[
+        dbc.Row(id='header-row', className="fixed-top bg-dark shadow-sm p-3", children=[
+            dbc.Col(width=3, children=[
+                html.Div(id='company-name-output', className="mb-1 text-white text-center"),
+                dbc.InputGroup(children=[
+                    html.Datalist(id='popular-tickers-list', children=[html.Option(value=ticker) for ticker in popular_tickers]),
+                    dbc.Input(id="ticker", value="AAPL", type="text", debounce=True, placeholder="Introduce un Ticker", className="bg-dark text-white border-secondary rounded-4", list='popular-tickers-list'),
+                    dbc.Button("🔄", id="refresh-button", n_clicks=0, className="btn-primary rounded-4")
+                ])
+            ]),
+            dbc.Col([
+                dbc.Row(className="g-0", justify="center", children=[ 
+                    dbc.Col(html.Div(id="recomendacion", className="text-center fw-bold fs-4"), width=6),
+                    dbc.Col(html.Div(id="analyst-output", className="text-center fs-5 text-white"), width=6),
+                ]),
+                html.Div(id='notification', className='text-center fs-5 text-warning')
+            ], width=5, className="d-flex flex-column justify-content-center"),
+            dbc.Col([
+                html.Div(id="market-status-info", className="text-center fs-5 text-white"),
+                html.Div(id="current-price-info", className="text-center fw-bold fs-4 text-white")
+            ], width=4, className="d-flex flex-column justify-content-center align-items-center")
+        ]),
 
-    dcc.Tabs(id="tabs", value="Precio", children=[
-        dcc.Tab(label=tab, value=tab, className="custom-tab", selected_className="custom-tab--selected") 
-        for tab in ['Precio', 'RSI', 'MACD', 'ADX', 'Estocástico', 'Volumen']
-    ], className="mt-3 mb-4"),
-    dcc.Graph(id="grafico", config={'displayModeBar': False}),
+        dbc.Tabs(id="tabs", active_tab="tab-candlestick", children=[
+            dbc.Tab(label='Candlestick', tab_id='tab-candlestick'),
+            dbc.Tab(label='Precio', tab_id='tab-price'),
+            dbc.Tab(label='RSI', tab_id='tab-rsi'),
+            dbc.Tab(label='MACD', tab_id='tab-macd'),
+            dbc.Tab(label='ADX', tab_id='tab-adx'),
+            dbc.Tab(label='Estocástico', tab_id='tab-stoch'),
+            dbc.Tab(label='Volumen', tab_id='tab-volume'),
+        ], className="mb-4"),
+        html.P(id="graph-description", className="text-white text-center"),
+        dcc.Graph(id="grafico", config={'displayModeBar': False}),
 
-    dbc.Row([
-        dbc.Col([
-            html.H4("Simulador de Trading Manual", className="text-center mb-3"),
-            dbc.Input(id="cantidad", type="number", placeholder="Cantidad de acciones", min=1, step=1, value=1, className="mb-2"),
-            dbc.Button("Comprar", id="comprar", n_clicks=0, className="btn-success me-2"),
-            dbc.Button("Vender", id="vender", n_clicks=0, className="btn-danger me-2"),
-            dbc.Button("Resetear Cartera", id="reset", n_clicks=0, className="btn-secondary"),
-            html.Div(id="cartera", className="mt-3 text-center fw-bold fs-5")
-        ], width=6, className="p-3 border rounded shadow-sm bg-light"),
-        dbc.Col([
-            html.H4("Opciones de Compra/Venta Automática", className="text-center mb-3"),
-            dbc.Checklist(
-                options=[{"label": "Activar Compra/Venta Automática", "value": "AUTO_TRADE_ON"}],
-                value=[], # Por defecto, desactivado
-                id="auto-trade-toggle",
-                inline=True,
-                switch=True,
-                className="mb-2"
+        dbc.Row([
+            dbc.Col(
+                dbc.Card(id='sim-manual-card', className="mb-4 text-white rounded-4", style={'backgroundColor': '#1e1e1e'}, children=[
+                    dbc.CardHeader(html.H4("Simulador Manual", id="sim-manual-title", className="text-center text-white"), className="rounded-4"),
+                    dbc.CardBody([
+                        dbc.Input(id="cantidad", type="number", placeholder="Cantidad de acciones", min=1, step=1, value=1, className="mb-2 bg-dark text-white border-secondary rounded-5"),
+                        dbc.Button("Comprar", id="comprar", n_clicks=0, className="btn-success me-2 rounded-5"),
+                        dbc.Button("Vender", id="vender", n_clicks=0, className="btn-danger me-2 rounded-5"),
+                        dbc.Button("Resetear Cartera", id="reset", n_clicks=0, className="btn-secondary rounded-5"),
+                        html.Div(id="cartera", className="mt-3 text-center fw-bold fs-5")
+                    ])
+                ]),
+                width=6
             ),
-            dbc.Input(id="auto-trade-quantity", type="number", placeholder="Cantidad Auto", min=1, step=1, value=1, className="mb-2"),
-            html.Div(id="auto-trade-status", className="mt-2 text-center text-info")
-        ], width=6, className="p-3 border rounded shadow-sm bg-light")
-    ], className="my-4 g-4"),
+            dbc.Col(
+                dbc.Card(id='sim-auto-card', className="mb-4 text-white rounded-4", style={'backgroundColor': '#1e1e1e'}, children=[
+                    dbc.CardHeader(html.H4("Trading Automático", id="sim-auto-title", className="text-center text-white"), className="rounded-4"),
+                    dbc.CardBody([
+                        html.Div([
+                            dbc.Checklist(
+                                options=[{"label": "Activar Compra/Venta Automática", "value": "AUTO_TRADE_ON"}],
+                                value=[],
+                                id="auto-trade-toggle",
+                                inline=True,
+                                switch=True,
+                                className="mb-2 text-white",
+                            ),
+                            dbc.Tooltip("Activa o desactiva la compra/venta automática basada en la recomendación del análisis.", target="auto-trade-toggle", placement="right")
+                        ], id="auto-trade-toggle-wrapper"),
+                        dbc.Input(id="auto-trade-quantity", type="number", placeholder="Cantidad Auto", min=1, step=1, value=1, className="mb-2 bg-dark text-white border-secondary rounded-5"),
+                        html.Div(id="auto-trade-status", className="mt-2 text-center text-info")
+                    ])
+                ]),
+                width=6
+            )
+        ]),
 
-    html.Hr(),
-    html.H4("Posiciones Abiertas", className="text-center mb-3"),
-    dash_table.DataTable(
-        id="open-positions-table", # ID cambiado para claridad
-        columns=[
-            {"name": "Fecha Compra", "id": "Fecha Compra"},
-            {"name": "Ticker", "id": "Ticker"},
-            {"name": "Cantidad", "id": "Cantidad"},
-            {"name": "Precio Compra Promedio", "id": "Precio Compra Promedio"},
-            {"name": "Ganancia/Pérdida (No Realizada)", "id": "Ganancia/Pérdida (No Realizada)"}
-        ],
-        data=[],
-        style_table={"overflowX": "auto", "minWidth": "100%"},
-        style_cell={"textAlign": "center", "padding": "8px"},
-        style_header={
-            "backgroundColor": "rgba(0,0,0,0.05)",
-            "fontWeight": "bold"
-        },
-        style_data_conditional=[
-            {"if": {"column_id": "Ganancia/Pérdida (No Realizada)", "filter_query": "{Ganancia/Pérdida (No Realizada)} > 0"},
-             "color": "green"},
-            {"if": {"column_id": "Ganancia/Pérdida (No Realizada)", "filter_query": "{Ganancia/Pérdida (No Realizada)} < 0"},
-             "color": "red"}
-        ]
-    ),
-    html.Div(id="realized-pnl-message", className="text-center mt-2 fs-5 text-info"), # Para mostrar P/L realizado de la última venta
+        html.Hr(className="text-white"),
+        html.H4("Posiciones Abiertas", className="text-center mb-3 text-white"),
+        dash_table.DataTable(
+            id="open-positions-table",
+            columns=[
+                {"name": "Fecha Compra", "id": "Fecha Compra"},
+                {"name": "Ticker", "id": "Ticker"},
+                {"name": "Cantidad", "id": "Cantidad"},
+                {"name": "Precio Compra Promedio", "id": "Precio Compra Promedio"},
+                {"name": "Ganancia/Pérdida (No Realizada)", "id": "Ganancia/Pérdida (No Realizada)"}
+            ],
+            data=[],
+            style_table={"overflowX": "auto", "minWidth": "100%", 'backgroundColor': '#1e1e1e', 'border-collapse': 'collapse', 'border-radius': '0.5rem', 'overflow': 'hidden'},
+            style_cell={"textAlign": "center", "padding": "8px", 'backgroundColor': '#1e1e1e', 'color': 'white', 'border': '1px solid #1e1e1e'},
+            style_header={
+                "backgroundColor": "#1e1e1e",
+                "fontWeight": "bold",
+                "color": "white",
+                'border': '1px solid #1e1e1e'
+            },
+            style_data_conditional=[
+                {"if": {"column_id": "Ganancia/Pérdida (No Realizada)", "filter_query": "{Ganancia/Pérdida (No Realizada)} > 0"},
+                 "color": "green"},
+                {"if": {"column_id": "Ganancia/Pérdida (No Realizada)", "filter_query": "{Ganancia/Pérdida (No Realizada)} < 0"},
+                 "color": "red"}
+            ]
+        ),
+        html.Div(id="realized-pnl-message", className="text-center mt-2 fs-5 text-info"),
 
-    html.Hr(),
-    html.H4("Historial de Ventas Realizadas", className="text-center mb-3"),
-    dash_table.DataTable(
-        id="closed-trades-table", # Nueva tabla para ventas realizadas
-        columns=[
-            {"name": "Fecha Venta", "id": "Fecha Venta"},
-            {"name": "Ticker", "id": "Ticker"},
-            {"name": "Cantidad", "id": "Cantidad"},
-            {"name": "Precio Compra Promedio", "id": "Precio Compra Promedio"},
-            {"name": "Precio Venta", "id": "Precio Venta"},
-            {"name": "Ganancia/Pérdida Realizada", "id": "Ganancia/Pérdida Realizada"}
-        ],
-        data=[],
-        style_table={"overflowX": "auto", "minWidth": "100%"},
-        style_cell={"textAlign": "center", "padding": "8px"},
-        style_header={
-            "backgroundColor": "rgba(0,0,0,0.05)",
-            "fontWeight": "bold"
-        },
-        style_data_conditional=[
-            {"if": {"column_id": "Ganancia/Pérdida Realizada", "filter_query": "{Ganancia/Pérdida Realizada} > 0"},
-             "color": "green"},
-            {"if": {"column_id": "Ganancia/Pérdida Realizada", "filter_query": "{Ganancia/Pérdida Realizada} < 0"},
-             "color": "red"}
-        ]
-    ),
+        html.Hr(className="text-white"),
+        html.H4("Historial de Ventas Realizadas", className="text-center mb-3 text-white"),
+        dash_table.DataTable(
+            id="closed-trades-table",
+            columns=[
+                {"name": "Fecha Venta", "id": "Fecha Venta"},
+                {"name": "Ticker", "id": "Ticker"},
+                {"name": "Cantidad", "id": "Cantidad"},
+                {"name": "Precio Compra Promedio", "id": "Precio Compra Promedio"},
+                {"name": "Precio Venta", "id": "Precio Venta"},
+                {"name": "Ganancia/Pérdida Realizada", "id": "Ganancia/Pérdida Realizada"}
+            ],
+            data=[],
+            style_table={"overflowX": "auto", "minWidth": "100%", 'backgroundColor': '#1e1e1e', 'border-collapse': 'collapse', 'border-radius': '0.5rem', 'overflow': 'hidden'},
+            style_cell={"textAlign": "center", "padding": "8px", 'backgroundColor': '#1e1e1e', 'color': 'white', 'border': '1px solid #1e1e1e'},
+            style_header={
+                "backgroundColor": "#1e1e1e",
+                "fontWeight": "bold",
+                "color": "white",
+                'border': '1px solid #1e1e1e'
+            },
+            style_data_conditional=[
+                {"if": {"column_id": "Ganancia/Pérdida Realizada", "filter_query": "{Ganancia/Pérdida Realizada)} > 0"},
+                 "color": "green"},
+                {"if": {"column_id": "Ganancia/Pérdida Realizada", "filter_query": "{Ganancia/Pérdida Realizada)} < 0"},
+                 "color": "red"}
+            ]
+        ),
 
-    dcc.Interval(id='auto-update', interval=5000, n_intervals=0), # Cambiado a 5000 ms (5 segundos)
+        dcc.Interval(id='analysis-update', interval=60000, n_intervals=0), # Actualiza análisis cada minuto
+        dcc.Interval(id='price-update', interval=5000, n_intervals=0), # Actualiza precio cada 5 segundos
+    ])
+])
 
-], fluid=True, className="bg-light")
+# --------------------- CALLBACKS ---------------------
 
-# --------------------- CALLBACK PRINCIPAL ---------------------
+# Callback para actualizar los estilos de los componentes (ahora solo para modo oscuro)
+@app.callback(
+    Output('header-row', 'className'),
+    Output('open-positions-table', 'style_header'),
+    Output('closed-trades-table', 'style_header'),
+    Output('sim-manual-card', 'className'),
+    Output('sim-auto-card', 'className'),
+    Output('sim-manual-card', 'style'), 
+    Output('sim-auto-card', 'style'),
+    Output('sim-manual-title', 'className'),
+    Output('sim-auto-title', 'className'),
+    Input('analysis-update', 'n_intervals'), # Usamos un input dummy para que se dispare al inicio
+)
+def update_ui_styles(n_intervals):
+    # La clase 'fixed-top' y 'bg-dark' ya están en la definición del layout.
+    # Esta función ahora solo actualiza los estilos de los otros componentes.
+    header_class = "fixed-top bg-dark shadow-sm p-3"
 
+    header_style = {
+        "backgroundColor": "#1e1e1e",
+        "fontWeight": "bold",
+        "color": "white",
+        'border': '1px solid #1e1e1e'
+    }
+    
+    card_class = "mb-4 text-white rounded-4" 
+    card_style = {'backgroundColor': '#1e1e1e'} 
+    title_class = "text-center text-white"
+    
+    return header_class, header_style, header_style, card_class, card_class, card_style, card_style, title_class, title_class
+
+
+# Callback para la actualización de análisis completo (gráficos, recomendación, descripción)
 @app.callback(
     Output("grafico", "figure"),
     Output("recomendacion", "children"),
+    Output("recomendacion", "className"),
     Output("analyst-output", "children"),
-    Output("cartera", "children"),
-    Output("open-positions-table", "data"), # Salida para posiciones abiertas
-    Output("notification", "children"),
-    Output("auto-trade-status", "children"),
-    Output("realized-pnl-message", "children"), # Salida para P/L realizado de la última venta
-    Output("closed-trades-table", "data"), # Nueva salida para el historial de ventas realizadas
-    Input("actualizar", "n_clicks"),
-    Input("tabs", "value"),
-    Input("comprar", "n_clicks"),
-    Input("vender", "n_clicks"),
-    Input("reset", "n_clicks"),
-    Input('auto-update', 'n_intervals'),
-    State("ticker", "value"),
-    State("cantidad", "value"),
-    State("auto-trade-toggle", "value"),
-    State("auto-trade-quantity", "value")
+    Output("analyst-output", "className"),
+    Output("market-status-info", "children"),
+    Output("current-price-info", "children"),
+    Output('notification', 'children'),
+    Output('graph-description', 'children'),
+    Output('graph-description', 'className'),
+    Output('company-name-output', 'children'), # Nuevo Output
+    Input("refresh-button", "n_clicks"),
+    Input("analysis-update", "n_intervals"),
+    Input("tabs", "active_tab"),
+    State("ticker", "value")
 )
-def update_dashboard(n_clicks, tab, buy_clicks, sell_clicks, reset_clicks, n_intervals, 
-                     ticker, cantidad_manual, auto_trade_toggle_value, auto_trade_quantity):
-    global portfolio, latest_data
-
-    ctx = callback_context
-    if not ctx.triggered:
-        changed_id = 'no_trigger'
-    else:
-        changed_id = ctx.triggered[0]["prop_id"].split(".")[0]
-
-    notification_message = ""
-    auto_trade_status_message = ""
-    realized_pnl_message = "" # Se inicializa aquí para cada ejecución del callback
-    current_ticker_in_input = ticker.strip().upper()
-
-    old_rec_for_this_ticker = None
-    if latest_data["ticker"] == current_ticker_in_input:
-        old_rec_for_this_ticker = latest_data["last_rec_for_notification"]
+def update_analysis_and_graphs(n_clicks, n_intervals, active_tab, ticker):
+    global latest_data
     
-    # --- Lógica de Obtención/Caché de Datos ---
-    if changed_id in ["actualizar", "auto-update"] or latest_data["ticker"] != current_ticker_in_input:
-        rec, analyst, df, graphs, _ = analyze_stock(current_ticker_in_input)
+    ctx = callback_context
+    changed_id = ctx.triggered[0]["prop_id"].split(".")[0]
+
+    current_ticker_in_input = ticker.strip().upper()
+    
+    # Mapeo de `tab_id` a nombre de gráfico
+    tab_to_graph_name = {
+        'tab-candlestick': 'Candlestick',
+        'tab-price': 'Precio',
+        'tab-rsi': 'RSI',
+        'tab-macd': 'MACD',
+        'tab-adx': 'ADX',
+        'tab-stoch': 'Estocástico',
+        'tab-volume': 'Volumen',
+    }
+    graph_name = tab_to_graph_name.get(active_tab, 'Candlestick')
+
+    if changed_id in ["refresh-button", "analysis-update"] or latest_data["ticker"] != current_ticker_in_input:
+        rec, analyst, df, graphs, market_info, long_name = analyze_stock(current_ticker_in_input)
+        
+        if rec.startswith("Error:"):
+            return go.Figure(), rec, "text-center fw-bold fs-4 text-danger", f"🔍 Recomendación analista: N/A", "text-center fs-5 text-danger", "", "", "", "", "", "N/A"
+
         latest_data.update({
-            "ticker": current_ticker_in_input, 
-            "graphs": graphs, 
-            "df": df, 
-            "rec": rec, 
+            "ticker": current_ticker_in_input,
+            "graphs": graphs,
+            "df": df,
+            "rec": rec,
             "analyst": analyst,
-            "last_rec_for_notification": rec # Guarda la recomendación actual para la próxima comparación
+            "market_info": market_info,
+            "last_rec_for_notification": rec
         })
-        if latest_data["ticker"] != current_ticker_in_input:
-            latest_data["last_auto_trade_rec"].pop(current_ticker_in_input, None) # Limpia el registro de auto-trade para el nuevo ticker
     else:
         rec = latest_data["rec"]
         analyst = latest_data["analyst"]
         graphs = latest_data["graphs"]
         df = latest_data["df"]
-    # --- Fin Lógica de Obtención/Caché de Datos ---
+        market_info = latest_data["market_info"]
+        long_name = yf.Ticker(current_ticker_in_input).info.get("longName", current_ticker_in_input)
 
-    if df.empty:
-        return go.Figure(), "❌ No hay datos para este Ticker", "Recomendación analista: N/A", \
-               f"💰 Efectivo: ${portfolio['cash']:.2f} | 📦 Acciones: {sum(stock_info['qty'] for stock_info in portfolio['stocks'].values()) if portfolio['stocks'] else 0} | 💼 Valor total: ${portfolio['cash']:.2f}", \
-               [], "Introduce un ticker válido.", "Automático: Desactivado", "", [] # Se añade [] para la nueva tabla
+    notification_message = ""
+    if changed_id == "analysis-update" and \
+       latest_data["last_rec_for_notification"] is not None and \
+       latest_data["last_rec_for_notification"] != rec:
+        notification_message = f"🔔 Nueva recomendación para {current_ticker_in_input}: {rec} (antes: {latest_data['last_rec_for_notification']})"
+    latest_data["last_rec_for_notification"] = rec
 
-    now_price = df["Close"].iloc[-1]
-
-    # --- Lógica de Compra/Venta Automática ---
-    is_auto_trade_enabled = "AUTO_TRADE_ON" in auto_trade_toggle_value
-    auto_trade_qty = int(auto_trade_quantity) if auto_trade_quantity and auto_trade_quantity > 0 else 1
-
-    if is_auto_trade_enabled and changed_id == "auto-update":
-        last_auto_rec_for_ticker = latest_data["last_auto_trade_rec"].get(current_ticker_in_input)
-
-        if rec == "📈 Comprar":
-            if last_auto_rec_for_ticker != "📈 Comprar":
-                costo_total_auto = auto_trade_qty * now_price
-                if portfolio["cash"] >= costo_total_auto:
-                    # Actualizar portfolio["stocks"] con el precio promedio de compra
-                    if current_ticker_in_input not in portfolio["stocks"]:
-                        portfolio["stocks"][current_ticker_in_input] = {"qty": auto_trade_qty, "avg_price": now_price, "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-                    else:
-                        old_qty = portfolio["stocks"][current_ticker_in_input]["qty"]
-                        old_avg_price = portfolio["stocks"][current_ticker_in_input]["avg_price"]
-                        new_total_cost = (old_qty * old_avg_price) + (auto_trade_qty * now_price)
-                        new_total_qty = old_qty + auto_trade_qty
-                        portfolio["stocks"][current_ticker_in_input]["qty"] = new_total_qty
-                        portfolio["stocks"][current_ticker_in_input]["avg_price"] = new_total_cost / new_total_qty
-                    
-                    portfolio["cash"] -= costo_total_auto
-                    notification_message = f"🤖 Compra automática de {auto_trade_qty} acciones de {current_ticker_in_input} a ${now_price:.2f}."
-                    latest_data["last_auto_trade_rec"][current_ticker_in_input] = "📈 Comprar"
-                    save_portfolio(portfolio) # Guardar después de la operación
-                else:
-                    auto_trade_status_message = "Automático: Fondos insuficientes para comprar."
-        
-        elif rec == "📉 Vender":
-            if last_auto_rec_for_ticker != "📉 Vender":
-                if current_ticker_in_input in portfolio["stocks"] and portfolio["stocks"][current_ticker_in_input]["qty"] >= auto_trade_qty:
-                    avg_buy_price = portfolio["stocks"][current_ticker_in_input]["avg_price"]
-                    realized_pnl = (now_price - avg_buy_price) * auto_trade_qty
-                    realized_pnl_message = f"💰 Ganancia/Pérdida Realizada por Venta Automática de {current_ticker_in_input}: ${realized_pnl:.2f}"
-
-                    portfolio["cash"] += auto_trade_qty * now_price
-                    
-                    # Añadir a closed_trades
-                    portfolio["closed_trades"].append({
-                        "Fecha Venta": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "Ticker": current_ticker_in_input,
-                        "Cantidad": auto_trade_qty,
-                        "Precio Compra Promedio": round(avg_buy_price, 2),
-                        "Precio Venta": round(now_price, 2),
-                        "Ganancia/Pérdida Realizada": round(realized_pnl, 2)
-                    })
-
-                    portfolio["stocks"][current_ticker_in_input]["qty"] -= auto_trade_qty
-                    if portfolio["stocks"][current_ticker_in_input]["qty"] == 0:
-                        del portfolio["stocks"][current_ticker_in_input]
-                    
-                    notification_message = f"🤖 Venta automática de {auto_trade_qty} acciones de {current_ticker_in_input} a ${now_price:.2f}."
-                    latest_data["last_auto_trade_rec"][current_ticker_in_input] = "📉 Vender"
-                    save_portfolio(portfolio) # Guardar después de la operación
-                else:
-                    auto_trade_status_message = "Automático: No hay suficientes acciones para vender."
-        else:
-            latest_data["last_auto_trade_rec"][current_ticker_in_input] = rec
-            auto_trade_status_message = f"Automático: {rec} para {current_ticker_in_input}. Esperando señal de compra/venta."
-    elif is_auto_trade_enabled:
-        auto_trade_status_message = "Automático: Activado. Esperando actualización para operar."
+    fig = graphs.get(graph_name, go.Figure())
+    description = GRAPH_DESCRIPTIONS.get(graph_name, "")
+    description_class = "text-white text-center"
+    
+    rec_class = "text-center fw-bold fs-4 "
+    if rec == BUY_SIGNAL:
+        rec_class += "text-success"
+    elif rec == SELL_SIGNAL:
+        rec_class += "text-danger"
     else:
-        auto_trade_status_message = "Automático: Desactivado."
-    # --- Fin Lógica de Compra/Venta Automática ---
+        rec_class += "text-warning"
+    
+    analyst_text = f"🔍 Recomendación analista: {analyst}"
+    analyst_class = "text-center fs-5 text-white"
 
+    market_status_text = f"Mercado: {market_info.get('status', 'N/A')}"
+    
+    current_price = market_info.get('current_price')
+    current_price_text = f"Precio: ${current_price:.2f}" if current_price is not None else ""
+        
+    return fig, rec, rec_class, analyst_text, analyst_class, market_status_text, current_price_text, notification_message, description, description_class, long_name
 
-    # --- Lógica de Compra/Venta Manual ---
+# Callback para la actualización de precios y cartera (más frecuente)
+@app.callback(
+    Output("cartera", "children"),
+    Output("open-positions-table", "data"),
+    Input("price-update", "n_intervals"),
+    Input("comprar", "n_clicks"),
+    Input("vender", "n_clicks"),
+    Input("reset", "n_clicks"),
+    Input("auto-trade-toggle", "value"),
+    Input("auto-trade-quantity", "value")
+)
+def update_portfolio(n_intervals, buy_clicks, sell_clicks, reset_clicks, auto_trade_toggle_value, auto_trade_quantity):
+    global portfolio, latest_data
+    
+    if latest_data["df"].empty:
+        total_valor = portfolio["cash"]
+        cartera_txt = f"💰 Efectivo: ${portfolio['cash']:.2f} | 📦 Acciones: 0 | 💼 Valor total: ${total_valor:.2f} | 📈 Ganancia/Pérdida: 0.00% "
+        return cartera_txt, []
+        
+    now_price = latest_data["df"]["Close"].iloc[-1]
+    
+    total_valor_acciones = sum(
+        (now_price * stock_info['qty'])
+        for ticker_, stock_info in portfolio["stocks"].items()
+    )
+    total_valor = portfolio["cash"] + total_valor_acciones
+    
+    pnl_percentage = ((total_valor - portfolio["initial_cash"]) / portfolio["initial_cash"]) * 100 if portfolio["initial_cash"] > 0 else 0
+    
+    open_positions_data = []
+    for ticker_held, stock_info in portfolio["stocks"].items():
+        unrealized_pnl = (now_price - stock_info["avg_price"]) * stock_info["qty"]
+        open_positions_data.append({
+            "Fecha Compra": stock_info.get("buy_date", "N/A"),
+            "Ticker": ticker_held,
+            "Cantidad": stock_info["qty"],
+            "Precio Compra Promedio": round(stock_info["avg_price"], 2),
+            "Ganancia/Pérdida (No Realizada)": round(unrealized_pnl, 2)
+        })
+
+    cartera_txt = f"💰 Efectivo: ${portfolio['cash']:.2f} | 📦 Acciones: {sum(stock_info['qty'] for stock_info in portfolio['stocks'].values())} | 💼 Valor total: ${total_valor:.2f} | 📈 Ganancia/Pérdida: {pnl_percentage:.2f}% "
+    
+    return cartera_txt, open_positions_data
+
+# Callback para operaciones manuales
+@app.callback(
+    Output("realized-pnl-message", "children", allow_duplicate=True),
+    Output("notification", "children", allow_duplicate=True),
+    Output("closed-trades-table", "data", allow_duplicate=True),
+    Input("comprar", "n_clicks"),
+    Input("vender", "n_clicks"),
+    State("ticker", "value"),
+    State("cantidad", "value"),
+    prevent_initial_call=True
+)
+def handle_manual_trading(buy_clicks, sell_clicks, ticker, cantidad_manual):
+    global portfolio
+    ctx = callback_context
+    changed_id = ctx.triggered[0]["prop_id"].split(".")[0]
+    
+    if latest_data["df"].empty:
+        return "", "❌ No se puede operar sin datos del ticker.", portfolio["closed_trades"]
+    
+    current_ticker_in_input = ticker.strip().upper()
+    now_price = latest_data["df"]["Close"].iloc[-1]
+    
+    notification_message = ""
+    realized_pnl_message = ""
+
     if changed_id == "comprar" and cantidad_manual:
         costo_total = cantidad_manual * now_price
         if portfolio["cash"] >= costo_total:
-            # Actualizar portfolio["stocks"] con el precio promedio de compra
             if current_ticker_in_input not in portfolio["stocks"]:
                 portfolio["stocks"][current_ticker_in_input] = {"qty": cantidad_manual, "avg_price": now_price, "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
             else:
@@ -536,10 +628,10 @@ def update_dashboard(n_clicks, tab, buy_clicks, sell_clicks, reset_clicks, n_int
             
             portfolio["cash"] -= costo_total
             notification_message = f"✅ Compradas {cantidad_manual} acciones de {current_ticker_in_input} a ${now_price:.2f} cada una."
-            save_portfolio(portfolio) # Guardar después de la operación
+            save_portfolio(portfolio)
         else:
             notification_message = "❌ Fondos insuficientes para realizar la compra."
-
+            
     elif changed_id == "vender" and cantidad_manual:
         if current_ticker_in_input in portfolio["stocks"] and portfolio["stocks"][current_ticker_in_input]["qty"] >= cantidad_manual:
             avg_buy_price = portfolio["stocks"][current_ticker_in_input]["avg_price"]
@@ -548,7 +640,6 @@ def update_dashboard(n_clicks, tab, buy_clicks, sell_clicks, reset_clicks, n_int
 
             portfolio["cash"] += cantidad_manual * now_price
             
-            # Añadir a closed_trades
             portfolio["closed_trades"].append({
                 "Fecha Venta": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "Ticker": current_ticker_in_input,
@@ -563,60 +654,119 @@ def update_dashboard(n_clicks, tab, buy_clicks, sell_clicks, reset_clicks, n_int
                 del portfolio["stocks"][current_ticker_in_input]
             
             notification_message = f"✅ Vendidas {cantidad_manual} acciones de {current_ticker_in_input} a ${now_price:.2f} cada una."
-            save_portfolio(portfolio) # Guardar después de la operación
+            save_portfolio(portfolio)
         else:
             notification_message = "❌ No tienes suficientes acciones para vender."
+    
+    return realized_pnl_message, notification_message, portfolio["closed_trades"]
 
-    elif changed_id == "reset":
+# Callback para el botón de reset
+@app.callback(
+    Output("notification", "children", allow_duplicate=True),
+    Output("realized-pnl-message", "children", allow_duplicate=True),
+    Output("closed-trades-table", "data", allow_duplicate=True),
+    Input("reset", "n_clicks"),
+    prevent_initial_call=True
+)
+def handle_reset_portfolio(n_clicks):
+    global portfolio
+    if n_clicks > 0:
         portfolio["cash"] = portfolio["initial_cash"]
         portfolio["stocks"] = {}
-        portfolio["closed_trades"] = [] # También se limpia el historial de ventas realizadas
-        notification_message = "🔄 Cartera reseteada a los valores iniciales."
-        save_portfolio(portfolio) # Guardar después de la operación
-    # --- Fin Lógica de Compra/Venta Manual ---
+        portfolio["closed_trades"] = []
+        save_portfolio(portfolio)
+        return "🔄 Cartera reseteada a los valores iniciales.", "", []
+    return "", "", portfolio["closed_trades"]
 
-    # Calcular valor total de la cartera
-    total_valor_acciones = sum(
-        (now_price * stock_info['qty']) # Usar now_price para valor actual
-        for ticker_, stock_info in portfolio["stocks"].items()
-    )
-    total_valor = portfolio["cash"] + total_valor_acciones
-    cartera_txt = f"💰 Efectivo: ${portfolio['cash']:.2f} | 📦 Acciones: {sum(stock_info['qty'] for stock_info in portfolio['stocks'].values()) if portfolio['stocks'] else 0} | 💼 Valor total: ${total_valor:.2f}"
+# Callback para la lógica de trading automática
+@app.callback(
+    Output("auto-trade-status", "children"),
+    Output("notification", "children", allow_duplicate=True),
+    Output("realized-pnl-message", "children", allow_duplicate=True),
+    Output("closed-trades-table", "data", allow_duplicate=True),
+    Input('analysis-update', 'n_intervals'),
+    State("ticker", "value"),
+    State("auto-trade-toggle", "value"),
+    State("auto-trade-quantity", "value"),
+    prevent_initial_call=True
+)
+def handle_auto_trading(n_intervals, ticker, auto_trade_toggle_value, auto_trade_quantity):
+    global portfolio, latest_data
 
-    # Reconstruir el historial de operaciones para mostrar solo acciones compradas (posiciones abiertas)
-    # y actualizar su Ganancia/Pérdida no realizada
-    open_positions_data = []
-    for ticker_held, stock_info in portfolio["stocks"].items():
-        unrealized_pnl = (now_price - stock_info["avg_price"]) * stock_info["qty"]
-        open_positions_data.append({
-            "Fecha Compra": stock_info.get("buy_date", "N/A"),
-            "Ticker": ticker_held,
-            "Cantidad": stock_info["qty"],
-            "Precio Compra Promedio": round(stock_info["avg_price"], 2),
-            "Ganancia/Pérdida (No Realizada)": round(unrealized_pnl, 2)
-        })
+    current_ticker_in_input = ticker.strip().upper()
+    
+    is_auto_trade_enabled = "AUTO_TRADE_ON" in auto_trade_toggle_value
+    auto_trade_qty = int(auto_trade_quantity) if auto_trade_quantity and auto_trade_quantity > 0 else 1
 
-    # Notificación si la recomendación ha cambiado (solo si no es una operación automática)
-    if changed_id == "auto-update" and \
-       old_rec_for_this_ticker is not None and \
-       old_rec_for_this_ticker != rec and \
-       not notification_message.startswith("🤖"):
-        notification_message = f"🔔 Nueva recomendación para {current_ticker_in_input}: {rec} (antes: {old_rec_for_this_ticker})"
+    notification_message = ""
+    auto_trade_status_message = "Automático: Desactivado."
+    realized_pnl_message = ""
 
-    fig = graphs.get(tab, go.Figure())
+    if not is_auto_trade_enabled:
+        return auto_trade_status_message, notification_message, realized_pnl_message, portfolio["closed_trades"]
 
-    # --- Lógica de Zoom para mostrar solo el último día completo ---
-    if not df.empty:
-        last_data_date = df.index[-1].normalize()
-        unique_days_in_df = df.index.normalize().unique().sort_values(ascending=False)
-        if len(unique_days_in_df) > 0:
-            day_to_display = unique_days_in_df[0]
-            start_of_day = pd.Timestamp(day_to_display.date())
-            end_of_day = pd.Timestamp(day_to_display.date()) + timedelta(days=1) - timedelta(seconds=1)
-            fig.update_layout(xaxis_range=[start_of_day, end_of_day])
-    # -----------------------------------------------------------------
+    if latest_data["df"].empty or latest_data["ticker"] != current_ticker_in_input:
+        auto_trade_status_message = f"Automático: Activado. Esperando datos para {current_ticker_in_input}."
+        return auto_trade_status_message, notification_message, realized_pnl_message, portfolio["closed_trades"]
 
-    return fig, rec, f"🔍 Recomendación analista: {analyst}", cartera_txt, open_positions_data, notification_message, auto_trade_status_message, realized_pnl_message, portfolio["closed_trades"]
+    rec = latest_data["rec"]
+    now_price = latest_data["df"]["Close"].iloc[-1]
+    last_auto_rec_for_ticker = latest_data["last_auto_trade_rec"].get(current_ticker_in_input)
+
+    if rec == BUY_SIGNAL:
+        if last_auto_rec_for_ticker != BUY_SIGNAL:
+            costo_total_auto = auto_trade_qty * now_price
+            if portfolio["cash"] >= costo_total_auto:
+                if current_ticker_in_input not in portfolio["stocks"]:
+                    portfolio["stocks"][current_ticker_in_input] = {"qty": auto_trade_qty, "avg_price": now_price, "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+                else:
+                    old_qty = portfolio["stocks"][current_ticker_in_input]["qty"]
+                    old_avg_price = portfolio["stocks"][current_ticker_in_input]["avg_price"]
+                    new_total_cost = (old_qty * old_avg_price) + (auto_trade_qty * now_price)
+                    new_total_qty = old_qty + auto_trade_qty
+                    portfolio["stocks"][current_ticker_in_input]["qty"] = new_total_qty
+                    portfolio["stocks"][current_ticker_in_input]["avg_price"] = new_total_cost / new_total_qty
+                
+                portfolio["cash"] -= costo_total_auto
+                notification_message = f"🤖 Compra automática de {auto_trade_qty} acciones de {current_ticker_in_input} a ${now_price:.2f}."
+                latest_data["last_auto_trade_rec"][current_ticker_in_input] = BUY_SIGNAL
+                save_portfolio(portfolio)
+            else:
+                auto_trade_status_message = "Automático: Fondos insuficientes para comprar."
+    
+    elif rec == SELL_SIGNAL:
+        if last_auto_rec_for_ticker != SELL_SIGNAL:
+            if current_ticker_in_input in portfolio["stocks"] and portfolio["stocks"][current_ticker_in_input]["qty"] >= auto_trade_qty:
+                avg_buy_price = portfolio["stocks"][current_ticker_in_input]["avg_price"]
+                realized_pnl = (now_price - avg_buy_price) * auto_trade_qty
+                realized_pnl_message = f"💰 Ganancia/Pérdida Realizada por Venta Automática de {current_ticker_in_input}: ${realized_pnl:.2f}"
+
+                portfolio["cash"] += auto_trade_qty * now_price
+                
+                portfolio["closed_trades"].append({
+                    "Fecha Venta": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "Ticker": current_ticker_in_input,
+                    "Cantidad": auto_trade_qty,
+                    "Precio Compra Promedio": round(avg_buy_price, 2),
+                    "Precio Venta": round(now_price, 2),
+                    "Ganancia/Pérdida Realizada": round(realized_pnl, 2)
+                })
+
+                portfolio["stocks"][current_ticker_in_input]["qty"] -= auto_trade_qty
+                if portfolio["stocks"][current_ticker_in_input]["qty"] == 0:
+                    del portfolio["stocks"][current_ticker_in_input]
+                
+                notification_message = f"🤖 Venta automática de {auto_trade_qty} acciones de {current_ticker_in_input} a ${now_price:.2f}."
+                latest_data["last_auto_trade_rec"][current_ticker_in_input] = SELL_SIGNAL
+                save_portfolio(portfolio)
+            else:
+                auto_trade_status_message = "Automático: No hay suficientes acciones para vender."
+    else:
+        latest_data["last_auto_trade_rec"][current_ticker_in_input] = rec
+        auto_trade_status_message = f"Automático: {rec} para {current_ticker_in_input}. Esperando señal de compra/venta."
+
+    return auto_trade_status_message, notification_message, realized_pnl_message, portfolio["closed_trades"]
+
 
 if __name__ == "__main__":
     app.run(debug=True)

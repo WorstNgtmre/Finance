@@ -40,12 +40,13 @@ def get_recommendation(df_with_indicators): # Renamed df_slice to df_with_indica
         return "No hay datos suficientes"
 
     # --- Coeficientes para el peso de cada indicador (ajustables para day trading) ---
-    COEF_BOLLINGER = 1.0
-    COEF_RSI = 2.0
-    COEF_MACD = 2.0
+    COEF_BOLLINGER = 0.8
+    COEF_RSI = 2.3
+    COEF_MACD = 1.45
     COEF_STOCH = 2.0
-    COEF_ADX_SMA = 1.0
+    COEF_ADX_SMA = 0.85
     COEF_VOLUME = 1.0
+    THRESHOLD = 1.3
     # ---------------------------------------------------------------------------------
 
     buy_score = 0.0
@@ -96,9 +97,9 @@ def get_recommendation(df_with_indicators): # Renamed df_slice to df_with_indica
             elif last_row['Close'] < prev_row['Close']:
                 sell_score += COEF_VOLUME
 
-    if buy_score > sell_score + 1.0:
+    if buy_score > sell_score + THRESHOLD:
         return "📈 Comprar"
-    elif sell_score > buy_score + 1.0:
+    elif sell_score > buy_score + THRESHOLD:
         return "📉 Vender"
     elif buy_score > 0.0 or sell_score > 0.0:
         return "👁 Observar"
