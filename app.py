@@ -268,6 +268,66 @@ def _sell_stock(ticker: str, quantity: int, price: float) -> Tuple[str, str, flo
         notification_message = "❌ No tienes suficientes acciones para vender."
         return notification_message, "danger", 0.0
 
+def evaluate_signals(df: pd.DataFrame) -> str:
+    """
+    Evalúa señales de compra/venta en base a indicadores técnicos.
+    """
+    COEF_BOLLINGER = 1.0
+    COEF_RSI = 2.0
+    COEF_MACD = 2.0
+    COEF_STOCH = 2.0
+    COEF_ADX_SMA = 1.0
+    COEF_VOLUME = 1.0
+
+    buy_score = 0.0
+    sell_score = 0.0
+
+    if df['Close'].iloc[-1] < df['Lower'].iloc[-1]:
+        buy_score += COEF_BOLLINGER
+    elif df['Close'].iloc[-1] > df['Upper'].iloc[-1]:
+        sell_score += COEF_BOLLINGER
+
+    rsi = df['RSI'].iloc[-1]
+    if rsi < RSI_OVERSOLD:
+        buy_score += COEF_RSI
+    elif rsi > RSI_OVERBOUGHT:
+        sell_score += COEF_RSI
+
+    if len(df) >= 2:
+        prev = df.iloc[-2]
+        curr = df.iloc[-1]
+        if curr['MACD'] > curr['Signal'] and prev['MACD'] <= prev['Signal']:
+            buy_score += COEF_MACD
+        elif curr['MACD'] < curr['Signal'] and prev['MACD'] >= prev['Signal']:
+            sell_score += COEF_MACD
+
+    if curr['Stoch_K'] < STOCH_OVERSOLD and curr['Stoch_D'] < STOCH_OVERSOLD:
+        buy_score += COEF_STOCH
+    elif curr['Stoch_K'] > STOCH_OVERBOUGHT and curr['Stoch_D'] > STOCH_OVERBOUGHT:
+        sell_score += COEF_STOCH
+
+    if curr['ADX'] > ADX_TREND_THRESHOLD:
+        if curr['Close'] > curr['SMA20']:
+            buy_score += COEF_ADX_SMA
+        else:
+            sell_score += COEF_ADX_SMA
+
+    if curr['Volume_SMA'] != 0:
+        if curr['Volume'] > (VOLUME_SMA_MULTIPLIER * curr['Volume_SMA']):
+            if curr['Close'] > prev['Close']:
+                buy_score += COEF_VOLUME
+            elif curr['Close'] < prev['Close']:
+                sell_score += COEF_VOLUME
+
+    if buy_score > sell_score + 1.0:
+        return BUY_SIGNAL
+    elif sell_score > buy_score + 1.0:
+        return SELL_SIGNAL
+    elif buy_score > 0.0 or sell_score > 0.0:
+        return OBSERVE_SIGNAL
+    else:
+        return HOLD_SIGNAL
+
 def _get_or_update_data(ticker: str, period: str = "5d", interval: str = "15m", template: str = 'plotly_dark') -> Tuple[Optional[str], Optional[str], Optional[pd.DataFrame], Optional[Dict[str, go.Figure]], Optional[Dict[str, Any]], Optional[str], Optional[str]]:
     """
     Obtiene o actualiza los datos del ticker, incluyendo indicadores y gráficos, usando un caché.
@@ -309,54 +369,7 @@ def _get_or_update_data(ticker: str, period: str = "5d", interval: str = "15m", 
     hist = hist[hist['Volume'] > 0]
     df = calculate_indicators(hist.copy())
 
-    # Lógica de puntuación y recomendación
-    COEF_BOLLINGER = 1.0
-    COEF_RSI = 2.0
-    COEF_MACD = 2.0
-    COEF_STOCH = 2.0
-    COEF_ADX_SMA = 1.0
-    COEF_VOLUME = 1.0
-
-    buy_score = 0.0
-    sell_score = 0.0
-
-    if not df.empty and df['Close'].iloc[-1] < df['Lower'].iloc[-1]:
-        buy_score += COEF_BOLLINGER
-    if not df.empty and df['Close'].iloc[-1] > df['Upper'].iloc[-1]:
-        sell_score += COEF_BOLLINGER
-    if not df.empty and df['RSI'].iloc[-1] < RSI_OVERSOLD:
-        buy_score += COEF_RSI
-    elif not df.empty and df['RSI'].iloc[-1] > RSI_OVERBOUGHT:
-        sell_score += COEF_RSI
-    if not df.empty and len(df) >= 2:
-        if df['MACD'].iloc[-1] > df['Signal'].iloc[-1] and df['MACD'].iloc[-2] <= df['Signal'].iloc[-2]:
-            buy_score += COEF_MACD
-        elif df['MACD'].iloc[-1] < df['Signal'].iloc[-1] and df['MACD'].iloc[-2] >= df['Signal'].iloc[-2]:
-            sell_score += COEF_MACD
-    if not df.empty and df['Stoch_K'].iloc[-1] < STOCH_OVERSOLD and df['Stoch_D'].iloc[-1] < STOCH_OVERSOLD:
-        buy_score += COEF_STOCH
-    elif not df.empty and df['Stoch_K'].iloc[-1] > STOCH_OVERBOUGHT and df['Stoch_D'].iloc[-1] > STOCH_OVERBOUGHT:
-        sell_score += COEF_STOCH
-    if not df.empty and df['ADX'].iloc[-1] > ADX_TREND_THRESHOLD:
-        if df['Close'].iloc[-1] > df['SMA20'].iloc[-1]:
-            buy_score += COEF_ADX_SMA
-        else:
-            sell_score += COEF_ADX_SMA
-    if not df.empty and len(df) >= 2 and not df['Volume_SMA'].iloc[-1] == 0:
-        if df['Volume'].iloc[-1] > (VOLUME_SMA_MULTIPLIER * df['Volume_SMA'].iloc[-1]):
-            if df['Close'].iloc[-1] > df['Close'].iloc[-2]:
-                buy_score += COEF_VOLUME
-            elif df['Close'].iloc[-1] < df['Close'].iloc[-2]:
-                sell_score += COEF_VOLUME
-
-    if buy_score > sell_score + 1.0:
-        recommendation = BUY_SIGNAL
-    elif sell_score > buy_score + 1.0:
-        recommendation = SELL_SIGNAL
-    elif buy_score > 0.0 or sell_score > 0.0:
-        recommendation = OBSERVE_SIGNAL
-    else:
-        recommendation = HOLD_SIGNAL
+    recommendation = evaluate_signals(df)
 
     analyst_rec = info.get("recommendationKey", "No disponible").capitalize()
 

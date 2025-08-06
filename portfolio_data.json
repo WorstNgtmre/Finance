@@ -2,14 +2,5 @@
     "cash": 100000.0,
     "stocks": {},
     "initial_cash": 100000.0,
-    "closed_trades": [
-        {
-            "Fecha Venta": "2025-08-06 13:36:34",
-            "Ticker": "AAPL",
-            "Cantidad": 1,
-            "Precio Compra Promedio": 202.93,
-            "Precio Venta": 202.93,
-            "Ganancia/P\u00e9rdida Realizada": 0.0
-        }
-    ]
+    "closed_trades": []
 }

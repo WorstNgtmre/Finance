@@ -4,6 +4,8 @@ Añadir más Indicadores Técnicos:
 
     - Más Señales de Trading: Al incorporar nuevos indicadores, podrías añadir más reglas a tu lógica de compra/venta automática para hacerla más sofisticada.
 
+
+
     1. Code Structure and Organization
 The app.py file is quite large. Breaking it down into smaller, more manageable modules can improve readability and maintainability.
 
