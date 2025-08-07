@@ -1,0 +1,138 @@
+/* ---------- CSS variables for quick tweaks ---------- */
+:root {
+  --bg-main:      #121212;
+  --bg-surface:   #1e1e1e;
+  --bg-surface-2: #2c2c2c;
+  --border:       #444;
+  --text:         #e0e0e0;
+  --text-muted:   #aaa;
+  --accent:       #1976d2;
+  --success:      #4caf50;
+  --danger:       #f44336; /* Corrected color value */
+  --warning:      #ff9800;
+}
+
+/* ---------- global ---------- */
+body, #main-div, #main-container {
+  background-color: var(--bg-main) !important;
+  color: var(--text) !important;
+}
+
+/* ---------- cards ---------- */
+.card {
+  background-color: var(--bg-surface) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 0.5rem;
+}
+
+/* ---------- inputs ---------- */
+.form-control, .form-select, .dash-bootstrap-input {
+  background-color: var(--bg-surface) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text) !important;
+}
+
+/* ---------- buttons ---------- */
+.btn-primary   { background-color: var(--accent);   border-color: var(--accent); }
+.btn-success   { background-color: var(--success);  border-color: var(--success); }
+.btn-danger    { background-color: var(--danger);   border-color: var(--danger); }
+.btn-secondary { background-color: var(--bg-surface-2); border-color: var(--border); }
+
+/* ---------- tabs ---------- */
+.nav-tabs .nav-link {
+  background-color: var(--bg-surface);
+  color: var(--text-muted);
+  border-color: var(--border);
+}
+.nav-tabs .nav-link.active {
+  background-color: var(--accent);
+  color: #fff;
+}
+
+/* ---------- dropdown (dash-core) ---------- */
+.dash-dropdown .Select-control,
+.dash-dropdown .Select-menu-outer {
+  background-color: var(--bg-surface) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text) !important;
+}
+
+.dash-dropdown .Select-value-label,
+.dash-dropdown .VirtualizedSelectOption {
+  color: var(--text) !important;
+}
+
+.dash-dropdown .VirtualizedSelectFocusedOption {
+  background-color: var(--accent) !important;
+}
+
+/* ---------- DataTable ---------- */
+.dash-table-container .dash-spreadsheet-container,
+.dash-table-container .dash-spreadsheet-inner * {
+  background-color: var(--bg-surface) !important;
+  color: var(--text) !important;
+  border-color: var(--border) !important;
+}
+
+.dash-table-container th {
+  background-color: var(--bg-surface-2) !important;
+  color: var(--text) !important;
+}
+
+/* ---------- tooltips ---------- */
+.tooltip-inner {
+  background-color: var(--bg-surface-2) !important;
+  color: var(--text) !important;
+}
+
+/* ---------- DatePickerSingle 100 % dark ---------- */
+.SingleDatePicker,
+.SingleDatePickerInput,
+.SingleDatePickerInput__withBorder,
+.SingleDatePickerInput__calendarIcon {
+  background-color: var(--bg-surface) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text) !important;
+}
+
+.SingleDatePickerInput__calendarIcon svg {
+  fill: var(--text) !important;
+}
+
+/* ---------- react-dates dark theme ---------- */
+.DayPicker,
+.DayPicker__withBorder,
+.DayPicker_portal__overlay,
+.DayPickerNavigation,
+.CalendarMonth,
+.CalendarMonthGrid,
+.DayPicker_weekHeaders,
+.DayPickerNavigation_button {
+  background-color: var(--bg-surface) !important;
+  color: var(--text) !important;
+}
+
+.DayPickerNavigation_button svg {
+  fill: var(--text) !important;
+}
+.DayPickerNavigation_button:focus,
+.DayPickerNavigation_button:hover {
+  background-color: var(--bg-surface-2) !important;
+}
+
+.CalendarDay {
+  background-color: var(--bg-surface);
+  color: var(--text);
+  border-color: var(--border);
+}
+.CalendarDay--selected,
+.CalendarDay--selected:hover,
+.CalendarDay--selected-span {
+  background-color: var(--accent) !important;
+  border-color: var(--accent) !important;
+}
+
+/* Date text inside input field */
+.SingleDatePickerInput__display-text {
+  color: var(--text) !important;
+}

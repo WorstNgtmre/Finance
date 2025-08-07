@@ -1,11 +1,13 @@
 # callbacks.py
 import os # Se añade la importación de 'os'
 import dash
-from dash import Input, Output, State, callback_context
+from dash import Input, Output, State, callback_context, html, dcc, ctx
 import dash_bootstrap_components as dbc
 import plotly.graph_objs as go
 import pandas as pd
 from typing import Dict, Any, List, Optional, Tuple
+from backtest_engine import run_backtest
+from layout import backtest_layout
 
 from config import BUY_SIGNAL, SELL_SIGNAL
 from data_processing import get_or_update_data
@@ -16,7 +18,7 @@ state = TraderState()
 
 def register_callbacks(app: dash.Dash):
     @app.callback(
-        Output("grafico", "figure"),
+        Output("dynamic-content", "children"), 
         Output("recomendacion", "children"),
         Output("recomendacion", "style"),
         Output("analyst-output", "children"),
@@ -29,9 +31,12 @@ def register_callbacks(app: dash.Dash):
         Input("analysis-update", "n_intervals"),
         Input("tabs", "active_tab"),
         State("ticker", "value"),
+        State('bt-lock', 'data'),
         prevent_initial_call='initial_duplicate'
     )
-    def update_analysis_and_graphs(n_clicks: int, n_intervals: int, active_tab: str, ticker: str) -> Tuple[go.Figure, str, Dict[str, str], str, str, str, str, List[dbc.Alert], str]:
+    def update_analysis_and_graphs(n_clicks, n_intervals, active_tab, ticker, bt_lock):
+        if bt_lock:                # back-test running → skip global refresh
+            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
         changed_id = callback_context.triggered[0]["prop_id"].split(".")[0] if callback_context.triggered else "initial_load"
         current_ticker_in_input = ticker.strip().upper() if ticker else "AAPL"
         graph_name = {
@@ -51,16 +56,34 @@ def register_callbacks(app: dash.Dash):
 
         state.update_latest_data(current_ticker_in_input, rec, analyst, df, graphs, market_info, long_name)
 
-        fig = graphs.get(graph_name, go.Figure())
-
         rec_style = {'color': '#66BB6A' if rec == BUY_SIGNAL else '#EF5350' if rec == SELL_SIGNAL else '#FFA726'}
         analyst_text = f"🔍 Recomendación analista: {analyst}"
         market_status_text = f"Mercado: {market_info.get('status', 'N/A')}"
         current_price = market_info.get('current_price')
         current_price_text = f"Precio: ${current_price:.2f}" if current_price is not None else ""
+            # assemble the graph
+        if active_tab == "tab-backtest":
+            content = backtest_layout
+        else:
+            graph_name = {
+                'tab-candlestick': 'Candlestick', 'tab-rsi': 'RSI', 'tab-macd': 'MACD',
+                'tab-adx': 'ADX', 'tab-stoch': 'Estocástico', 'tab-volume': 'Volumen',
+            }.get(active_tab, 'Candlestick')
+            fig = graphs.get(graph_name, go.Figure())
+            content = dcc.Graph(id="grafico", figure=fig, config={'displayModeBar': False})
 
-        return fig, rec, rec_style, analyst_text, "text-center fs-5 text-white", market_status_text, current_price_text, notification_list, long_name
-
+        return (
+            content,
+            rec,
+            rec_style,
+            analyst_text,
+            "text-center fs-5 text-white",
+            market_status_text,
+            current_price_text,
+            notification_list,
+            long_name,
+        )
+    
     @app.callback(
         Output("cartera", "children"),
         Output("open-positions-table", "data"),
@@ -192,3 +215,78 @@ def register_callbacks(app: dash.Dash):
             print("Deteniendo la aplicación...")
             os._exit(0)
         return dash.no_update
+        
+    # --------------------------------------------------------------
+    # 1.  Run the back-test, return results + toast + button state
+    # --------------------------------------------------------------
+    @app.callback(
+        Output('bt-loading',        'style'),
+        Output('bt-summary',        'children'),
+        Output('bt-closed-trades',  'data'),
+        Output('notification-container', 'children', allow_duplicate=True),
+        Output('bt-run',            'disabled'),
+        Output('bt-lock',          'data'),
+        Input('bt-run',             'n_clicks'),
+        State('bt-start',           'date'),
+        State('bt-end',             'date'),
+        State('bt-interval',        'value'),
+        State('ticker',             'value'),
+        prevent_initial_call=True
+    )
+    def run_and_display_backtest(n_clicks, start, end, interval, ticker):
+        if not (start and end and ticker and interval):
+            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
+        lock_flag = True
+        # show spinner + disable button
+        loading_style = {"display": "block"}
+        disabled_flag = True
+
+        result = run_backtest(ticker.strip().upper(), start, end, interval)
+
+        if result is None:
+            summary_table = html.Div("No data for the selected range / ticker.")
+            trades_data   = []
+            toast         = dbc.Alert(
+                "No price data for the chosen period / ticker / interval",
+                color="warning",
+                dismissable=True,
+                className="mt-2"
+            )
+        else:
+            summary_table = dbc.Table(
+                [
+                    html.Tr([html.Td("Net Profit %"),      html.Td(f"{result['profit_pct']} %")]),
+                    html.Tr([html.Td("Total Trades"),      html.Td(result['trades'])]),
+                    html.Tr([html.Td("Money Spent"),       html.Td(f"${result['money_spent']}")]),
+                    html.Tr([html.Td("Money Retrieved"),   html.Td(f"${result['money_retrieved']}")]),
+                    html.Tr([html.Td("Shares Still Held"), html.Td(result['shares_left'])])
+                ],
+                bordered=True, color="dark", className="mb-3"
+            )
+            trades_data = result["closed_trades"] or []
+            toast        = []   # no toast on success
+
+        # hide spinner + enable button
+        loading_style = {"display": "none"}
+        disabled_flag = False
+        lock_flag = False
+
+        return loading_style, summary_table, trades_data, toast, disabled_flag, lock_flag
+
+    # --------------------------------------------------------------
+    # 2.  (Optional) keep the cache in bt-store – unchanged
+    # --------------------------------------------------------------
+    @app.callback(
+        Output('bt-store', 'data'),
+        Input('bt-run',      'n_clicks'),
+        State('bt-start',    'date'),
+        State('bt-end',      'date'),
+        State('bt-interval', 'value'),
+        State('ticker',      'value'),
+        prevent_initial_call=True
+    )
+    def cache_backtest_result(n_clicks, start, end, interval, ticker):
+        if not (start and end and interval and ticker):
+            return dash.no_update
+        return run_backtest(ticker.strip().upper(), start, end, interval)

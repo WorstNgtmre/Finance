@@ -11,7 +11,8 @@ import time
 
 # Dash app setup
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP, dbc.themes.DARKLY])
-app.title = "Análisis Técnico y Simulador de Trading"
+app.title = "Day Trading Simulator"
+app.config.suppress_callback_exceptions = True
 
 # Set the layout
 app.layout = serve_layout()
@@ -27,4 +28,4 @@ def open_browser():
 if __name__ == "__main__":
     # Inicia un hilo para abrir el navegador
     threading.Thread(target=open_browser).start()
-    app.run(debug=False)
+    app.run(debug=True)
