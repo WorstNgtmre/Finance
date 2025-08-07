@@ -6,10 +6,23 @@
   --border:       #444;
   --text:         #e0e0e0;
   --text-muted:   #aaa;
-  --accent:       #1976d2;
+  --accent:       #ff9800;
   --success:      #4caf50;
-  --danger:       #f44336; /* Corrected color value */
+  --danger:       #f44336;
   --warning:      #ff9800;
+  --input-bg:     #333333;
+  --input-text:     #c0c0c0;
+  --input-border:   #666;
+  --button-color:    #ff9800; /* New variable for button color */
+  --button-hover-bg: #cca467; /* Slightly less intense hover color */
+  --datatable-header-bg: #545353;
+  --datatable-cell-bg: #2c2c2c;
+  --tooltip-bg: #050505; /* More visible tooltip background */
+  --tooltip-text: #c0c0c0;
+  --border-radius-sm: 1rem; /* Small rounding */
+  --border-radius-md: 1rem; /* Medium rounding */
+  --border-radius-lg: 5rem; /* Large rounding */
+  --calendar-color: #2c2c2c; /* New variable for calendar color */
 }
 
 /* ---------- global ---------- */
@@ -21,22 +34,28 @@ body, #main-div, #main-container {
 /* ---------- cards ---------- */
 .card {
   background-color: var(--bg-surface) !important;
-  border: 1px solid var(--border) !important;
-  border-radius: 0.5rem;
+  border: none !important; /* Remove borders */
+  border-radius: var(--border-radius-lg);
 }
 
 /* ---------- inputs ---------- */
 .form-control, .form-select, .dash-bootstrap-input {
-  background-color: var(--bg-surface) !important;
-  border: 1px solid var(--border) !important;
-  color: var(--text) !important;
+  background-color: var(--input-bg) !important;
+  border: none !important; /* Remove borders */
+  color: var(--input-text) !important;
 }
 
 /* ---------- buttons ---------- */
-.btn-primary   { background-color: var(--accent);   border-color: var(--accent); }
-.btn-success   { background-color: var(--success);  border-color: var(--success); }
-.btn-danger    { background-color: var(--danger);   border-color: var(--danger); }
-.btn-secondary { background-color: var(--bg-surface-2); border-color: var(--border); }
+.btn {
+  background-color: var(--button-color) !important; /* Use new variable */
+  border: none !important; /* Remove borders */
+  color: #fff !important;
+  transition: background-color 0.3s ease;
+}
+
+.btn:hover {
+  background-color: var(--button-hover-bg) !important;
+}
 
 /* ---------- tabs ---------- */
 .nav-tabs .nav-link {
@@ -52,14 +71,14 @@ body, #main-div, #main-container {
 /* ---------- dropdown (dash-core) ---------- */
 .dash-dropdown .Select-control,
 .dash-dropdown .Select-menu-outer {
-  background-color: var(--bg-surface) !important;
-  border: 1px solid var(--border) !important;
-  color: var(--text) !important;
+  background-color: var(--input-bg) !important;
+  border: none !important; /* Remove borders */
+  color: var(--input-text) !important;
 }
 
 .dash-dropdown .Select-value-label,
 .dash-dropdown .VirtualizedSelectOption {
-  color: var(--text) !important;
+  color: var(--input-text) !important;
 }
 
 .dash-dropdown .VirtualizedSelectFocusedOption {
@@ -69,70 +88,83 @@ body, #main-div, #main-container {
 /* ---------- DataTable ---------- */
 .dash-table-container .dash-spreadsheet-container,
 .dash-table-container .dash-spreadsheet-inner * {
-  background-color: var(--bg-surface) !important;
-  color: var(--text) !important;
-  border-color: var(--border) !important;
+  background-color: var(--input-bg) !important;
+  color: var(--input-text) !important;
 }
 
 .dash-table-container th {
-  background-color: var(--bg-surface-2) !important;
-  color: var(--text) !important;
+  background-color: var(--datatable-header-bg) !important;
+  color: var(--datatable-cell-bg) !important;
+  border: none !important;
+}
+
+.dash-table-container td {
+  border: none !important;
+  background-color: var(--datatable-cell-bg) !important;
+}
+
+.dash-table-container {
+  border: none !important;
 }
 
 /* ---------- tooltips ---------- */
 .tooltip-inner {
-  background-color: var(--bg-surface-2) !important;
-  color: var(--text) !important;
+  background-color: var(--tooltip-bg) !important;
+  color: var(--tooltip-text) !important;
+  border-radius: var(--border-radius-md); 
 }
 
-/* ---------- DatePickerSingle 100 % dark ---------- */
+/* ---------- DatePickerSingle ---------- */
 .SingleDatePicker,
 .SingleDatePickerInput,
 .SingleDatePickerInput__withBorder,
 .SingleDatePickerInput__calendarIcon {
-  background-color: var(--bg-surface) !important;
-  border: 1px solid var(--border) !important;
-  color: var(--text) !important;
+  background-color: var(--input-bg) !important;
+  border: none !important;
+  color: var(--input-text) !important;
 }
 
 .SingleDatePickerInput__calendarIcon svg {
-  fill: var(--text) !important;
+  fill: var(--input-text) !important;
 }
 
-/* ---------- react-dates dark theme ---------- */
+/* ---------- react-dates calendar  ---------- */
+
+/* 1️⃣  Calendar frame & navigation – no borders, dark background */
 .DayPicker,
 .DayPicker__withBorder,
 .DayPicker_portal__overlay,
 .DayPickerNavigation,
 .CalendarMonth,
 .CalendarMonthGrid,
-.DayPicker_weekHeaders,
-.DayPickerNavigation_button {
-  background-color: var(--bg-surface) !important;
-  color: var(--text) !important;
+.DayPicker_weekHeaders {
+  background-color: var(--calendar-color) !important;
+  border: none !important;
 }
 
-.DayPickerNavigation_button svg {
-  fill: var(--text) !important;
-}
-.DayPickerNavigation_button:focus,
-.DayPickerNavigation_button:hover {
-  background-color: var(--bg-surface-2) !important;
-}
-
+/* 2️⃣  Readable day numbers */
 .CalendarDay {
-  background-color: var(--bg-surface);
-  color: var(--text);
-  border-color: var(--border);
+  background-color: var(--calendar-color) !important;
+  color: var(--text) !important;
+  border: none !important;
 }
+
+/* 3️⃣  Selected day = accent color */
 .CalendarDay--selected,
 .CalendarDay--selected:hover,
 .CalendarDay--selected-span {
   background-color: var(--accent) !important;
-  border-color: var(--accent) !important;
+  color: #fff !important;
+  border: none !important;
 }
 
-/* Date text inside input field */
-.SingleDatePickerInput__display-text {
-  color: var(--text) !important;
+/* 4️⃣  Navigation arrows */
+.DayPickerNavigation_button svg {
+  fill: var(--text) !important;
+}
+.DayPickerNavigation_button {
+  background-color: var(--bg-surface-2) !important;
+}
+.DayPickerNavigation_button:hover {
+  background-color: var(--bg-surface-2) !important;
 }

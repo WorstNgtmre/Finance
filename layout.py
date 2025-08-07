@@ -175,7 +175,8 @@ def serve_layout():
             trading_cards(),
             *tables(),
             dcc.Interval(id='analysis-update', interval=60_000, n_intervals=0),
-            dcc.Interval(id='price-update',    interval=5_000,  n_intervals=0)
+            dcc.Interval(id='price-update',    interval=5_000,  n_intervals=0),
+            dbc.Tooltip("Toggle light/dark mode", target="theme-toggle", placement="right")
         ]),
         dcc.Store(id='bt-store',  data=None),
         dcc.Store(id='bt-lock',   data=False),
