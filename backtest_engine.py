@@ -43,7 +43,7 @@ def run_backtest(ticker: str, start: str, end: str, interval: str, cfg_hash: str
     if df.empty:
         return None  # Return None if the dataframe is empty after applying the date filter
 
-    bt = Backtest(df, MyStrategy, cash=100_000, commission=0.002)
+    bt = Backtest(df, MyStrategy, cash=100_000, commission=0.000)
     stats = bt.run()
 
     # 5. Assemble results

@@ -37,9 +37,16 @@ def register_callbacks(app: dash.Dash):
         prevent_initial_call='initial_duplicate'
     )
     def update_analysis_and_graphs(n_clicks, n_intervals, active_tab, ticker, bt_lock):
+        changed_id = callback_context.triggered[0]["prop_id"].split(".")[0] if callback_context.triggered else "initial_load"
+
+        # If the periodic refresh is the trigger AND we are on the backtest tab,
+        # prevent the update. This stops the date pickers from being reset.
+        if changed_id == 'analysis-update' and active_tab == 'tab-backtest':
+            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
         if bt_lock:                # back-test running → skip global refresh
             return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
-        changed_id = callback_context.triggered[0]["prop_id"].split(".")[0] if callback_context.triggered else "initial_load"
+        
         current_ticker_in_input = ticker.strip().upper() if ticker else "AAPL"
         graph_name = {
             'tab-candlestick': 'Candlestick', 'tab-rsi': 'RSI', 'tab-macd': 'MACD',

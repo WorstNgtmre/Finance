@@ -4,6 +4,7 @@ from dash import dcc, html, dash_table
 import dash_bootstrap_components as dbc
 from constants import popular_tickers, GRAPH_DESCRIPTIONS
 from config_editor import get_dict
+from datetime import datetime, timedelta
 
 def _tooltips():
     """Return a list of Tooltips for the tab labels."""
@@ -129,13 +130,17 @@ def tables():
 def backtest_ui():
     bt_columns = [{"name": col, "id": col} for col in
               ["EntryTime", "ExitTime", "Size", "EntryPrice", "ExitPrice", "PnL"]]
+    
+    today = datetime.now().strftime('%Y-%m-%d')
+    sixty_days_ago = (datetime.now() - timedelta(days=60)).strftime('%Y-%m-%d')
+    
     return html.Div([
         dbc.Row([
             dbc.Col([dbc.Label("Start Date"),
-                     dcc.DatePickerSingle(id='bt-start', date='2025-06-01',
+                     dcc.DatePickerSingle(id='bt-start', date=sixty_days_ago,
                                           display_format='YYYY-MM-DD', className="mb-2")], width=2),
             dbc.Col([dbc.Label("End Date"),
-                     dcc.DatePickerSingle(id='bt-end', date='2025-07-01',
+                     dcc.DatePickerSingle(id='bt-end', date=today,
                                           display_format='YYYY-MM-DD', className="mb-2")], width=2),
             dbc.Col([dbc.Label("Interval"),
                      html.Div(dcc.Dropdown(id='bt-interval',
