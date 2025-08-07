@@ -8,10 +8,12 @@ import pandas as pd
 from typing import Dict, Any, List, Optional, Tuple
 from backtest_engine import run_backtest
 from layout import backtest_layout
+from config_editor import update_dict, reset_to_original, get_dict, persist_config, _hash_config
 
 from config import BUY_SIGNAL, SELL_SIGNAL
 from data_processing import get_or_update_data
 from state_management import TraderState
+from layout import config_ui
 
 # A single instance of the state class will be used
 state = TraderState()
@@ -64,6 +66,8 @@ def register_callbacks(app: dash.Dash):
             # assemble the graph
         if active_tab == "tab-backtest":
             content = backtest_layout
+        elif active_tab == "tab-config":
+            content = config_ui()
         else:
             graph_name = {
                 'tab-candlestick': 'Candlestick', 'tab-rsi': 'RSI', 'tab-macd': 'MACD',
@@ -235,17 +239,18 @@ def register_callbacks(app: dash.Dash):
     )
     def run_and_display_backtest(n_clicks, start, end, interval, ticker):
         if not (start and end and ticker and interval):
-            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
-        lock_flag = True
-        # show spinner + disable button
-        loading_style = {"display": "block"}
-        disabled_flag = True
+        cfg_hash = _hash_config()
+        result = run_backtest(ticker.strip().upper(), start, end, interval, cfg_hash)
 
-        result = run_backtest(ticker.strip().upper(), start, end, interval)
+        # default values
+        loading_style = {"display": "none"}
+        disabled_flag = False
+        lock_flag = False
 
         if result is None:
-            summary_table = html.Div("No data for the selected range / ticker.")
+            summary_table = html.Div("No price data for the selected range / ticker / interval.")
             trades_data   = []
             toast         = dbc.Alert(
                 "No price data for the chosen period / ticker / interval",
@@ -267,14 +272,7 @@ def register_callbacks(app: dash.Dash):
             trades_data = result["closed_trades"] or []
             toast        = []   # no toast on success
 
-        # hide spinner + enable button
-        loading_style = {"display": "none"}
-        disabled_flag = False
-        lock_flag = False
-
-        return loading_style, summary_table, trades_data, toast, disabled_flag, lock_flag
-
-    # --------------------------------------------------------------
+        return loading_style, summary_table, trades_data, toast, disabled_flag, lock_flag    # --------------------------------------------------------------
     # 2.  (Optional) keep the cache in bt-store – unchanged
     # --------------------------------------------------------------
     @app.callback(
@@ -289,4 +287,47 @@ def register_callbacks(app: dash.Dash):
     def cache_backtest_result(n_clicks, start, end, interval, ticker):
         if not (start and end and interval and ticker):
             return dash.no_update
-        return run_backtest(ticker.strip().upper(), start, end, interval)
+        cfg_hash = _hash_config()          # <-- new
+        return run_backtest(ticker.strip().upper(), start, end, interval, cfg_hash)
+
+    @app.callback(
+        Output("config-feedback", "children"),
+        Input("config-apply", "n_clicks"),
+        State({"type": "config-input", "index": dash.ALL}, "value"),
+        State({"type": "config-input", "index": dash.ALL}, "id"),
+    )
+    def save_config(n, values, ids):
+        if not n:
+            return dash.no_update
+        new_cfg = {id_["index"]: v for id_, v in zip(ids, values)}
+        # cast numbers
+        for k, v in new_cfg.items():
+            if isinstance(v, (int, float)):
+                pass
+            else:
+                try:
+                    new_cfg[k] = int(v)
+                except ValueError:
+                    try:
+                        new_cfg[k] = float(v)
+                    except ValueError:
+                        new_cfg[k] = str(v)
+        update_dict(new_cfg)
+        persist_config()
+        return dbc.Alert("✅ Configuration applied (in-memory).", color="success")
+
+    @app.callback(
+        Output("config-feedback", "children", allow_duplicate=True),
+        Output({"type": "config-input", "index": dash.ALL}, "value"),
+        Input("config-reset", "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def reset_config(n):
+        if not n:
+            return dash.no_update, dash.no_update
+        reset_to_original()
+        cfg = get_dict()
+        return (
+            dbc.Alert("🔁 Configuration reset to file defaults.", color="info"),
+            [cfg[k] for k in cfg],
+        )

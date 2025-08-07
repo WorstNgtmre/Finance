@@ -7,11 +7,12 @@ import plotly.graph_objs as go
 from datetime import datetime
 from typing import Dict, Any, List, Optional, Tuple, Union
 import yfinance.exceptions
+from config_editor import _hash_config
 
 from config import (
     RSI_OVERSOLD, RSI_OVERBOUGHT, STOCH_OVERSOLD, STOCH_OVERBOUGHT,
     ADX_TREND_THRESHOLD, VOLUME_SMA_MULTIPLIER, BUY_SIGNAL, SELL_SIGNAL,
-    OBSERVE_SIGNAL, HOLD_SIGNAL, CACHE_TIMEOUT, GRAPH_DESCRIPTIONS,
+    OBSERVE_SIGNAL, HOLD_SIGNAL, CACHE_TIMEOUT,
     COEF_BOLLINGER, COEF_RSI, COEF_MACD, COEF_STOCH, COEF_ADX_SMA, COEF_VOLUME,
     BUY_SELL_THRESHOLD
 )
@@ -119,7 +120,7 @@ def get_or_update_data(ticker: str, period: str = "5d", interval: str = "15m", t
     """
     global data_cache
 
-    cache_key = f"{ticker}_{period}_{interval}"
+    cache_key = f"{ticker}_{period}_{interval}_{_hash_config()}"
     now = datetime.now()
 
     if cache_key in data_cache and (now - data_cache[cache_key]['timestamp']).total_seconds() < CACHE_TIMEOUT:

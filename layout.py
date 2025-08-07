@@ -2,7 +2,8 @@
 import dash
 from dash import dcc, html, dash_table
 import dash_bootstrap_components as dbc
-from config import popular_tickers, GRAPH_DESCRIPTIONS
+from constants import popular_tickers, GRAPH_DESCRIPTIONS
+from config_editor import get_dict
 
 def _tooltips():
     """Return a list of Tooltips for the tab labels."""
@@ -51,6 +52,7 @@ def tabs_block():
         dbc.Tab(label='Estocástico',            tab_id='tab-stoch',      id="tab-stoch-tooltip"),
         dbc.Tab(label='Volumen',                tab_id='tab-volume',     id="tab-volume-tooltip"),
         dbc.Tab(label='Backtest',               tab_id='tab-backtest',   id="tab-backtest-tooltip"),
+        dbc.Tab(label="Config", tab_id="tab-config", id="tab-config-tooltip")
     ])
 
 def trading_cards():
@@ -188,3 +190,33 @@ def serve_layout():
     ])
 
 backtest_layout = backtest_ui()
+
+def config_ui():
+    cfg = get_dict()
+    rows = []
+    for key, val in cfg.items():
+        rows.append(
+            dbc.Row(
+                [
+                    dbc.Label(key, width=4),
+                    dbc.Col(
+                        dbc.Input(
+                            id={"type": "config-input", "index": key},
+                            value=str(val),
+                            type="number" if isinstance(val, (int, float)) else "text",
+                        ),
+                        width=8,
+                    ),
+                ],
+                className="mb-2",
+            )
+        )
+    return html.Div(
+        [
+            html.H4("Live Configuration Editor"),
+            dbc.Form(rows),
+            dbc.Button("Apply", id="config-apply", n_clicks=0, color="primary", className="me-2 mt-3"),
+            dbc.Button("Reset", id="config-reset", n_clicks=0, color="secondary", className="mt-3"),
+            html.Div(id="config-feedback", className="mt-3"),
+        ]
+    )

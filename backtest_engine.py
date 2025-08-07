@@ -15,7 +15,7 @@ class MyStrategy(Strategy):
         elif self.data.rec[-1] == SELL_SIGNAL and self.position:
             self.position.close()
 
-def run_backtest(ticker: str, start: str, end: str, interval: str):
+def run_backtest(ticker: str, start: str, end: str, interval: str, cfg_hash: str = ""):
     """
     start/end: 'YYYY-MM-DD'
     returns dict with keys:
