@@ -28,4 +28,4 @@ def open_browser():
 if __name__ == "__main__":
     # Inicia un hilo para abrir el navegador
     threading.Thread(target=open_browser).start()
-    app.run(debug=True)
+    app.run(debug=False)
