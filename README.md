@@ -1,4 +1,3 @@
-markdown
 # 📈 Day-Trading Simulator & Strategy Optimizer
 
 A **Dash-based desktop application** that lets you **paper-trade**, **back-test**, and **auto-optimize** technical-analysis strategies with a genetic algorithm.
@@ -28,7 +27,7 @@ optimizer.py           # Genetic algorithm (DEAP)
 state_management.py    # Paper-trade portfolio + JSON persistence
 portfolio_data.json    # Current cash/positions/trades
 optimizer_state.json   # GA history & best genome
-dark-theme.css         # Dark-mode overrides
+assets\dark-theme.css         # Dark-mode overrides
 ```
 
 ---
