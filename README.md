@@ -1,4 +1,4 @@
-```markdown
+markdown
 # 📈 Day-Trading Simulator & Strategy Optimizer
 
 A **Dash-based desktop application** that lets you **paper-trade**, **back-test**, and **auto-optimize** technical-analysis strategies with a genetic algorithm.
@@ -7,10 +7,7 @@ A **Dash-based desktop application** that lets you **paper-trade**, **back-test*
 
 ## 🚀 Quick Start
 
-```bash
-pip install -r requirements.txt
-python app.py
-```
+python -m app.py
 
 Browser opens at `http://127.0.0.1:8050`.
 
