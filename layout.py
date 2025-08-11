@@ -6,6 +6,8 @@ from constants import popular_tickers, GRAPH_DESCRIPTIONS
 from config_editor import get_dict
 from datetime import datetime, timedelta
 
+from optimizer import CONFIG_RANGES
+
 def _tooltips():
     """Return a list of Tooltips for the tab labels."""
     return [
@@ -53,6 +55,7 @@ def tabs_block():
         dbc.Tab(label='Estocástico',            tab_id='tab-stoch',      id="tab-stoch-tooltip"),
         dbc.Tab(label='Volumen',                tab_id='tab-volume',     id="tab-volume-tooltip"),
         dbc.Tab(label='Backtest',               tab_id='tab-backtest',   id="tab-backtest-tooltip"),
+        dbc.Tab(label="Optimizer", tab_id="tab-optimizer", id="tab-optimizer-tooltip"),
         dbc.Tab(label="Config", tab_id="tab-config", id="tab-config-tooltip")
     ])
 
@@ -195,6 +198,31 @@ def serve_layout():
     ])
 
 backtest_layout = backtest_ui()
+
+def optimizer_ui():
+    return html.Div([
+        html.H3("Optimizer"),
+        html.Label("Population Size"),
+        dcc.Input(id="optimizer-pop-size", type="number", value=10, min=2, max=100, step=1),
+        html.Br(),
+        html.Label("Generations"),
+        dcc.Input(id="optimizer-generations", type="number", value=20, min=1, max=100, step=1),
+        html.Br(),
+        html.H5("Parameter Ranges"),
+        html.Div([
+            html.Div([
+                html.Label(k),
+                dcc.Input(id=f"range-{k}-min", type="number", value=v[0], style={"width": "80px"}),
+                dcc.Input(id=f"range-{k}-max", type="number", value=v[1], style={"width": "80px"}),
+            ], style={"marginBottom": "8px"})
+            for k, v in CONFIG_RANGES.items()
+        ]),
+        html.Button("Start Optimizer", id="optimizer-start-btn", n_clicks=0, className="btn btn-success"),
+        html.Button("Apply Best Config", id="optimizer-apply-btn", n_clicks=0, className="btn btn-primary", style={"marginLeft": "10px"}),
+        html.Button("Reset Progress", id="optimizer-reset-btn", n_clicks=0, className="btn btn-danger", style={"marginLeft": "10px"}),
+        html.Div(id="optimizer-progress", style={"marginTop": "20px"}),
+    ])
+optimizer_ui = optimizer_ui
 
 def config_ui():
     cfg = get_dict()

@@ -3,12 +3,14 @@ import os # Se añade la importación de 'os'
 import dash
 from dash import Input, Output, State, callback_context, html, dcc, ctx
 import dash_bootstrap_components as dbc
+from dash.exceptions import PreventUpdate
 import plotly.graph_objs as go
 import pandas as pd
 from typing import Dict, Any, List, Optional, Tuple
 from backtest_engine import run_backtest
-from layout import backtest_layout
+from layout import backtest_layout, optimizer_ui
 from config_editor import update_dict, reset_to_original, get_dict, persist_config, _hash_config
+from optimizer import CONFIG_RANGES, run_optimizer, apply_best_config, get_optimizer_progress, reset_optimizer_state
 
 from config import BUY_SIGNAL, SELL_SIGNAL
 from data_processing import get_or_update_data
@@ -17,6 +19,34 @@ from layout import config_ui
 
 # A single instance of the state class will be used
 state = TraderState()
+
+def format_progress(progress):
+    if not progress or progress["iterations"] == 0:
+        return html.Div("Optimizer has not started yet.")
+    
+    best = progress.get("best_config", {})
+    best_score = progress.get("best_score", 0)
+    history = progress.get("history", [])
+    last = history[-1] if history else {}
+
+    best_trades = progress.get("best_trades", "N/A")
+    best_profit = progress.get("best_profit", "N/A")
+
+    items = [
+        html.H5("Optimizer Progress"),
+        html.P(f"Total Generations: {progress['iterations']}"),
+        html.P(f"Best Score: {best_score}"),
+        html.P(f"Best Trades: {last.get('trades', 'N/A')}"),
+        html.P(f"Best Profit %: {last.get('profit_pct', 'N/A')}"),
+        html.H6("Recent Generations:"),
+        html.Ul([
+            html.Li(
+                f"Gen {h['gen']}: Score={h['score']}, Trades={h.get('trades', 'N/A')}, Profit %={h.get('profit_pct', 'N/A')}"
+            ) for h in history
+        ])
+    ]
+    return html.Div(items)
+
 
 def register_callbacks(app: dash.Dash):
     @app.callback(
@@ -73,6 +103,8 @@ def register_callbacks(app: dash.Dash):
             # assemble the graph
         if active_tab == "tab-backtest":
             content = backtest_layout
+        elif active_tab == "tab-optimizer": 
+            content = optimizer_ui()
         elif active_tab == "tab-config":
             content = config_ui()
         else:
@@ -279,7 +311,8 @@ def register_callbacks(app: dash.Dash):
             trades_data = result["closed_trades"] or []
             toast        = []   # no toast on success
 
-        return loading_style, summary_table, trades_data, toast, disabled_flag, lock_flag    # --------------------------------------------------------------
+        return loading_style, summary_table, trades_data, toast, disabled_flag, lock_flag    
+    # --------------------------------------------------------------
     # 2.  (Optional) keep the cache in bt-store – unchanged
     # --------------------------------------------------------------
     @app.callback(
@@ -338,3 +371,34 @@ def register_callbacks(app: dash.Dash):
             dbc.Alert("🔁 Configuration reset to file defaults.", color="info"),
             [cfg[k] for k in cfg],
         )
+    
+    @app.callback(
+        Output("optimizer-progress", "children"),
+        Input("optimizer-start-btn", "n_clicks"),
+        Input("optimizer-apply-btn", "n_clicks"),
+        Input("optimizer-reset-btn", "n_clicks"),
+        State("optimizer-pop-size", "value"),
+        State("optimizer-generations", "value"),
+        *[State(f"range-{k}-min", "value") for k in CONFIG_RANGES],
+        *[State(f"range-{k}-max", "value") for k in CONFIG_RANGES],
+        prevent_initial_call=True
+    )
+    def optimizer_actions(start_clicks, apply_clicks, reset_clicks, pop_size, generations, *ranges):
+        triggered = ctx.triggered_id
+        if triggered == "optimizer-start-btn":
+            # Build new ranges dict from UI
+            new_ranges = {}
+            for i, k in enumerate(CONFIG_RANGES):
+                min_val = ranges[i]
+                max_val = ranges[i + len(CONFIG_RANGES)]
+                new_ranges[k] = (min_val, max_val)
+            run_optimizer(n_generations=generations, pop_size=pop_size, config_ranges=new_ranges)
+        elif triggered == "optimizer-apply-btn":
+            applied = apply_best_config()
+            if not applied:
+                return html.Div("No best config to apply yet.")
+        elif triggered == "optimizer-reset-btn":
+            reset_optimizer_state()
+        # For initial load or after any action, show progress
+        progress = get_optimizer_progress()
+        return format_progress(progress)

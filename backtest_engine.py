@@ -15,13 +15,16 @@ class MyStrategy(Strategy):
         elif self.data.rec[-1] == SELL_SIGNAL and self.position:
             self.position.close()
 
-def run_backtest(ticker: str, start: str, end: str, interval: str, cfg_hash: str = ""):
+def run_backtest(ticker: str, start: str, end: str, interval: str, cfg_hash: str = "",config=None):
     """
     start/end: 'YYYY-MM-DD'
     returns dict with keys:
         profit_pct, trades, money_spent, money_retrieved,
         shares_left, open_positions, closed_trades_df
     """
+    if config is None:
+        from config_editor import get_dict
+        config = get_dict()
     # 1. Load daily data (longer horizon)
     rec, analyst, df, _, _, _, _ = get_or_update_data(
         ticker, period="max", interval=interval
@@ -37,7 +40,7 @@ def run_backtest(ticker: str, start: str, end: str, interval: str, cfg_hash: str
     df['prev_Close']  = df['Close'].shift(1)
 
     # 3. Compute the *same* recommendation column you use live
-    df["rec"] = df.apply(_compute_signal_row, axis=1)
+    df["rec"] = df.apply(lambda row: _compute_signal_row(row, config), axis=1)
 
     # 4. Run backtest
     if df.empty:
@@ -75,13 +78,32 @@ def run_backtest(ticker: str, start: str, end: str, interval: str, cfg_hash: str
         closed_trades = trades_dict   # <-- plain list
     )
 
-def _compute_signal_row(row: pd.Series) -> str:
+def _compute_signal_row(row: pd.Series, config: dict) -> str:
     """
     Returns BUY / SELL / OBSERVE / HOLD based on the exact same rules
     used by get_or_update_data in data_processing.py
     """
     buy_score  = 0.0
     sell_score = 0.0
+
+    # Use config values, fallback to global if missing
+    COEF_BOLLINGER = config.get("COEF_BOLLINGER", 0.8)
+    COEF_RSI = config.get("COEF_RSI", 2.4)
+    COEF_MACD = config.get("COEF_MACD", 1.55)
+    COEF_STOCH = config.get("COEF_STOCH", 2)
+    COEF_ADX_SMA = config.get("COEF_ADX_SMA", 0.75)
+    COEF_VOLUME = config.get("COEF_VOLUME", 0.8)
+    RSI_OVERSOLD = config.get("RSI_OVERSOLD", 30)
+    RSI_OVERBOUGHT = config.get("RSI_OVERBOUGHT", 70)
+    STOCH_OVERSOLD = config.get("STOCH_OVERSOLD", 20)
+    STOCH_OVERBOUGHT = config.get("STOCH_OVERBOUGHT", 80)
+    ADX_TREND_THRESHOLD = config.get("ADX_TREND_THRESHOLD", 25)
+    VOLUME_SMA_MULTIPLIER = config.get("VOLUME_SMA_MULTIPLIER", 1.5)
+    BUY_SELL_THRESHOLD = config.get("BUY_SELL_THRESHOLD", 1.4)
+    BUY_SIGNAL = config.get("BUY_SIGNAL", "📈 Comprar")
+    SELL_SIGNAL = config.get("SELL_SIGNAL", "📉 Vender")
+    OBSERVE_SIGNAL = config.get("OBSERVE_SIGNAL", "👀 Observar")
+    HOLD_SIGNAL = config.get("HOLD_SIGNAL", "⏸️ Mantener")
 
     # 1. Bollinger Bands
     if row['Close'] < row['Lower']:
